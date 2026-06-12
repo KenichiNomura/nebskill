@@ -1,0 +1,53 @@
+# Default parameters for NEB calculations.
+# All values can be overridden by the LLM agent or user prompt.
+
+dataset:
+  path: data/Transition1x.h5
+  download_url: https://ndownloader.figshare.com/files/36035789
+  queue_file: queue.json
+
+calculator:
+  model: mace-off
+  model_size: medium          # small | medium | large
+  device: auto                # auto | cpu | cuda
+  dtype: float64
+
+relaxation:
+  optimizer_1: FIRE
+  optimizer_1_max_steps: 500
+  optimizer_2: BFGS
+  fmax: 0.01                  # eV/Å
+
+neb:
+  n_images: auto              # auto = max(n_images_min, round(path_length_Å / images_per_angstrom))
+  images_per_angstrom: 1.0
+  n_images_min: 9
+  method: improvedtangent     # improvedtangent | string | spline | eb
+  interpolation: idpp         # idpp | linear
+  spring_constant: 0.1        # eV/Å
+  remove_rotation_translation: true
+  phase1_fmax: 0.3            # eV/Å — standard NEB convergence target
+  phase1_max_steps: 200
+  phase2_fmax: 0.05           # eV/Å — CI-NEB convergence target
+  phase2_max_steps: 300
+
+retry:
+  max_attempts: 3
+  fallback_method: string
+
+filter:
+  min_barrier_ev: 0.1         # skip reactions with barrier below this
+  min_segment_frames: 2       # min frames on each side of TS
+
+batch:
+  max_jobs: 20
+  default_n_jobs: 5
+  slurm_partition: gpu
+  slurm_time: "02:00:00"
+  slurm_nodes: 1
+  slurm_gpus_per_node: 1
+  slurm_account: m5047           # NERSC project account
+
+alcf:
+  base_url: https://inference-api.alcf.anl.gov/resource_server/sophia/vllm/v1
+  model: meta-llama/Meta-Llama-3.1-70B-Instruct
