@@ -1,0 +1,98 @@
+# MLIP registry — one entry per supported model.
+# Keys used by lib/calculator.py:make_calculator(mlip_name, registry).
+
+# ── MACE ──────────────────────────────────────────────────────────────────────
+mace-mp:
+  package: mace
+  model_type: mace-mp
+  model_size: medium        # small | medium | large
+  device: auto
+  dtype: float64
+
+mace-off:
+  package: mace
+  model_type: mace-off
+  model_size: medium
+  device: auto
+  dtype: float64
+
+# ── CHGNet ────────────────────────────────────────────────────────────────────
+chgnet:
+  package: chgnet
+  device: auto
+
+# ── M3GNet (MatGL) ───────────────────────────────────────────────────────────
+m3gnet:
+  package: matgl
+  model_name: M3GNet-MP-2021.2.8-PES
+  device: auto
+
+# ── SevenNet ─────────────────────────────────────────────────────────────────
+sevennet:
+  package: sevenn
+  checkpoint: 7net-0
+  device: auto
+
+# ── PET-OAM-XL (rank 2 Matbench) ─────────────────────────────────────────────
+pet-oam-xl:
+  package: upet
+  model_name: pet-oam-xl
+  device: auto
+
+# ── eSEN-30M-OAM / UMA (rank 4 Matbench, via fairchem) ──────────────────────
+esen-30m-oam:
+  package: fairchem
+  model_name: uma-s-1p2
+  task: omat
+  device: auto
+
+# ── TACE-OAM-L (rank 3 Matbench) ─────────────────────────────────────────────
+tace-oam-l:
+  package: tace
+  model_path: step0-models/models/TACE-OAM-L.pt   # downloaded by download.py
+  device: auto
+  dtype: float32
+
+# ── EquFlash / SevenNet-MF (rank 5 Matbench) ─────────────────────────────────
+equflash:
+  package: sevenn
+  checkpoint: 7net-mf-ompa
+  modal: mpa
+  device: cuda              # CUDA 12.6 required
+
+# ── NequIP foundation models (compiled from Zenodo) ──────────────────────────
+nequip-oam-xl:
+  package: nequip
+  compiled_model: step0-models/models/NequIP-OAM-XL.nequip.pt2
+  device: cuda
+
+nequip-oam-l:
+  package: nequip
+  compiled_model: step0-models/models/NequIP-OAM-L.nequip.pt2
+  device: cuda
+
+nequip-oam-m:
+  package: nequip
+  compiled_model: step0-models/models/NequIP-OAM-M.nequip.pt2
+  device: cuda
+
+nequip-oam-s:
+  package: nequip
+  compiled_model: step0-models/models/NequIP-OAM-S.nequip.pt2
+  device: cuda
+
+nequip-mp-l:
+  package: nequip
+  compiled_model: step0-models/models/NequIP-MP-L.nequip.pt2
+  device: cuda
+
+# ── Allegro foundation models (compiled from Zenodo) ─────────────────────────
+allegro-oam-l:
+  package: nequip
+  compiled_model: step0-models/models/Allegro-OAM-L.nequip.pt2
+  device: cuda
+
+allegro-mp-l:
+  package: nequip
+  compiled_model: step0-models/models/Allegro-MP-L.nequip.pt2
+  device: cuda

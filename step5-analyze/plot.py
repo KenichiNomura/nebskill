@@ -30,7 +30,7 @@ def main():
     ts_idx   = report["ts_image_idx"]
     fwd_ev   = report["forward_barrier_ev"]
     rev_ev   = report["reverse_barrier_ev"]
-    dft_ev   = report["dft_forward_barrier_ev"]
+    dft_ev   = report.get("dft_forward_barrier_ev")
     n        = len(energies)
 
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -61,9 +61,10 @@ def main():
         fontsize=9, color="darkorange",
     )
 
-    # DFT reference barrier as dashed line
-    ax.axhline(dft_ev, color="gray", linestyle="--", lw=1.5,
-               label=f"DFT ref: {dft_ev:.3f} eV (ωB97x/6-31G*)")
+    # DFT reference barrier as dashed line (omitted when no reference available)
+    if dft_ev is not None:
+        ax.axhline(dft_ev, color="gray", linestyle="--", lw=1.5,
+                   label=f"DFT ref: {dft_ev:.3f} eV (ωB97x/6-31G*)")
 
     ax.set_xlabel("Image index", fontsize=12)
     ax.set_ylabel("Energy relative to reactant (eV)", fontsize=12)

@@ -90,17 +90,25 @@ def relax_structure(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Relax NEB endpoints with MACE-OFF")
-    parser.add_argument("--reaction-id", type=int, required=True)
-    parser.add_argument("--config", default="assets/neb_defaults.yaml")
+    parser = argparse.ArgumentParser(description="Relax NEB endpoints with chosen MLIP")
+    parser.add_argument("--reaction-id", type=int, default=None)
+    parser.add_argument("--config",   default="assets/neb_defaults.yaml")
     parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--mlip",     default=None,
+                        help="MLIP name from registry (default: mace-off)")
+    parser.add_argument("--registry", default="assets/mlip_registry.yaml")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     relax_cfg = cfg["relaxation"]
 
-    out_dir = Path(args.output_dir) if args.output_dir else \
-              Path(f"outputs/reaction_{args.reaction_id:04d}")
+    if args.output_dir:
+        out_dir = Path(args.output_dir)
+    elif args.reaction_id is not None:
+        out_dir = Path(f"outputs/reaction_{args.reaction_id:04d}")
+    else:
+        print("ERROR: specify --output-dir or --reaction-id", file=sys.stderr)
+        sys.exit(1)
     endpoints_path = out_dir / "endpoints.json"
 
     if not endpoints_path.exists():
@@ -108,10 +116,13 @@ def main():
         sys.exit(1)
 
     endpoints = json.loads(endpoints_path.read_text())
-    print(f"Relaxing endpoints for reaction {args.reaction_id} "
-          f"({endpoints['formula']}) with MACE-OFF {cfg['calculator']['model_size']}")
 
-    calc = make_calculator(cfg)
+    with open(args.registry) as rf:
+        registry = yaml.safe_load(rf)
+    mlip_name = args.mlip or "mace-off"
+    print(f"Relaxing endpoints ({endpoints['formula']}) with {mlip_name}")
+
+    calc = make_calculator(mlip_name, registry)
 
     results = {}
     failure = None
@@ -145,25 +156,26 @@ def main():
         sys.exit(3)
 
     output = {
-        "reaction_id":        endpoints["reaction_id"],
+        "reaction_id":        endpoints.get("reaction_id", endpoints.get("run_id", "custom")),
         "formula":            endpoints["formula"],
-        "rxn_key":            endpoints["rxn_key"],
-        "dft_forward_barrier_ev": endpoints["dft_forward_barrier_ev"],
-        "dft_reverse_barrier_ev": endpoints["dft_reverse_barrier_ev"],
-        "mace_model_size":    cfg["calculator"]["model_size"],
+        "rxn_key":            endpoints.get("rxn_key", "custom"),
+        "dft_forward_barrier_ev": endpoints.get("dft_forward_barrier_ev"),
+        "dft_reverse_barrier_ev": endpoints.get("dft_reverse_barrier_ev"),
+        "mlip":               mlip_name,
         "reactant":           results["reactant"],
         "product":            results["product"],
-        "ts_reference":       endpoints["ts_reference"],
+        "ts_reference":       endpoints.get("ts_reference"),
     }
 
     out_path = out_dir / "relaxed_endpoints.json"
     out_path.write_text(json.dumps(output, indent=2))
 
-    mace_barrier = results["reactant"]["energy_mace_ev"]
-    print(f"\nRelaxed energies (MACE-OFF):")
+    print(f"\nRelaxed energies ({mlip_name}):")
     print(f"  Reactant: {results['reactant']['energy_mace_ev']:.4f} eV")
     print(f"  Product:  {results['product']['energy_mace_ev']:.4f} eV")
-    print(f"  DFT forward barrier reference: {endpoints['dft_forward_barrier_ev']:.3f} eV")
+    dft_ref = endpoints.get("dft_forward_barrier_ev")
+    if dft_ref is not None:
+        print(f"  DFT forward barrier reference: {dft_ref:.3f} eV")
     print(f"Relaxed endpoints written to {out_path}")
 
 

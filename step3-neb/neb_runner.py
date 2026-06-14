@@ -33,12 +33,25 @@ def dict_to_atoms(d: dict) -> Atoms:
 
 def compute_n_images(reactant: Atoms, product: Atoms, cfg: dict,
                      edge_flag: bool = False) -> int:
-    """Estimate n_images from direct reactant→product displacement."""
+    """Estimate n_images from reactant→product displacement.
+
+    For periodic systems uses minimum-image convention so atoms that crossed
+    a cell boundary don't inflate the apparent path length.
+    """
     neb_cfg = cfg["neb"]
     if neb_cfg["n_images"] != "auto":
         n = int(neb_cfg["n_images"])
     else:
-        disp = product.positions - reactant.positions
+        if reactant.pbc.any() and not np.allclose(reactant.get_cell(), 0):
+            # minimum-image displacement: wrap into [-L/2, L/2] per axis
+            cell = reactant.get_cell()
+            disp = product.positions - reactant.positions
+            # fractional coords → wrap → Cartesian
+            frac = np.linalg.solve(cell.T, disp.T).T
+            frac -= np.round(frac)
+            disp = frac @ cell
+        else:
+            disp = product.positions - reactant.positions
         path_length = float(np.sum(np.linalg.norm(disp, axis=1)))
         n = max(int(neb_cfg["n_images_min"]),
                 round(path_length / float(neb_cfg["images_per_angstrom"])))
@@ -118,10 +131,13 @@ def run_phase(neb: NEB, images: list, fmax: float, max_steps: int,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run two-phase NEB with MACE-OFF")
-    parser.add_argument("--reaction-id", type=int, required=True)
-    parser.add_argument("--config", default="assets/neb_defaults.yaml")
+    parser = argparse.ArgumentParser(description="Run two-phase NEB with chosen MLIP")
+    parser.add_argument("--reaction-id", type=int, default=None)
+    parser.add_argument("--config",   default="assets/neb_defaults.yaml")
     parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--mlip",     default=None,
+                        help="MLIP name from registry")
+    parser.add_argument("--registry", default="assets/mlip_registry.yaml")
     parser.add_argument("--n-images", type=int, default=None,
                         help="Override n_images (agent retry use)")
     parser.add_argument("--method", default=None,
@@ -139,8 +155,13 @@ def main():
     if args.spring_constant:
         neb_cfg["spring_constant"] = args.spring_constant
 
-    out_dir = Path(args.output_dir) if args.output_dir else \
-              Path(f"outputs/reaction_{args.reaction_id:04d}")
+    if args.output_dir:
+        out_dir = Path(args.output_dir)
+    elif args.reaction_id is not None:
+        out_dir = Path(f"outputs/reaction_{args.reaction_id:04d}")
+    else:
+        print("ERROR: specify --output-dir or --reaction-id", file=sys.stderr)
+        sys.exit(1)
     relaxed_path = out_dir / "relaxed_endpoints.json"
 
     if not relaxed_path.exists():
@@ -150,20 +171,27 @@ def main():
     relaxed = json.loads(relaxed_path.read_text())
     endpoints_path = out_dir / "endpoints.json"
     endpoints = json.loads(endpoints_path.read_text())
-    edge_flag = endpoints.get("edge_flag", False)  # legacy; new schema has no edge_flag
+    edge_flag   = endpoints.get("edge_flag", False)   # legacy
+    is_periodic = endpoints.get("is_periodic", False)
 
     reactant = dict_to_atoms(relaxed["reactant"])
     product  = dict_to_atoms(relaxed["product"])
 
-    calc = make_calculator(cfg)
+    with open(args.registry) as rf:
+        registry = yaml.safe_load(rf)
+    mlip_name = args.mlip or "mace-off"
+    calc = make_calculator(mlip_name, registry)
 
     n_images = args.n_images if args.n_images else \
                compute_n_images(reactant, product, cfg, edge_flag)
     method   = neb_cfg["method"]
     k        = float(neb_cfg["spring_constant"])
 
-    print(f"NEB for reaction {args.reaction_id} ({relaxed['formula']})")
-    print(f"  n_images={n_images}, method={method}, k={k} eV/Å")
+    # periodic systems: disable remove_rotation_and_translation
+    rrt = False if is_periodic else bool(neb_cfg["remove_rotation_translation"])
+    print(f"NEB for {relaxed.get('formula', '?')} [{mlip_name}]"
+          f"{' (periodic)' if is_periodic else ''}")
+    print(f"  n_images={n_images}, method={method}, k={k} eV/Å, rrt={rrt}")
 
     images = build_images(reactant, product, n_images, calc)
 
@@ -172,10 +200,12 @@ def main():
               method=method,
               climb=False,
               allow_shared_calculator=True,
-              remove_rotation_and_translation=bool(neb_cfg["remove_rotation_translation"]))
+              remove_rotation_and_translation=rrt)
 
-    print(f"  Running IDPP interpolation...")
-    neb.interpolate("idpp")
+    interp_method = neb_cfg.get("interpolation", "idpp")
+    mic = is_periodic  # use minimum-image convention for periodic cells
+    print(f"  Running {interp_method} interpolation (mic={mic})...")
+    neb.interpolate(interp_method, mic=mic)
 
     traj_path = out_dir / "neb_trajectory.xyz"
 

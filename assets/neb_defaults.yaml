@@ -23,7 +23,7 @@ neb:
   images_per_angstrom: 1.0
   n_images_min: 9
   method: improvedtangent     # improvedtangent | string | spline | eb
-  interpolation: idpp         # idpp | linear
+  interpolation: linear        # idpp | linear  (linear safer for periodic cells)
   spring_constant: 0.1        # eV/Å
   remove_rotation_translation: true
   phase1_fmax: 0.3            # eV/Å — standard NEB convergence target
@@ -51,3 +51,27 @@ batch:
 alcf:
   base_url: https://inference-api.alcf.anl.gov/resource_server/sophia/vllm/v1
   model: meta-llama/Meta-Llama-3.1-70B-Instruct
+
+# ── custom XYZ input (set by CLI; overrides Transition1x workflow) ────────────
+input:
+  initial_xyz: null
+  final_xyz:   null
+
+# ── MLIP campaign list (used by step0-multi/runner.py) ───────────────────────
+mlips:
+  - mace-mp
+  - chgnet
+  - sevennet
+  - pet-oam-xl
+  - esen-30m-oam
+  - nequip-oam-l
+  - allegro-oam-l
+
+# ── execution mode ────────────────────────────────────────────────────────────
+execution:
+  mode: interactive     # interactive | slurm  (asked at runtime if not set)
+  slurm_partition: gpu
+  slurm_time: "02:00:00"
+  slurm_nodes: 1
+  slurm_gpus_per_node: 1
+  slurm_account: m5047

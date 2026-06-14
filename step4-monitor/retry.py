@@ -193,21 +193,23 @@ def apply_intervention(fn_name: str, fn_args: dict,
 # Subprocess helpers
 # --------------------------------------------------------------------------- #
 
-PYTHON = str(ROOT / ".." / ".venv" / "bin" / "python")
-
-
-def run_relax(reaction_id: int, config: str, fmax: float | None = None) -> int:
-    cmd = [PYTHON, "step2-relax/relax_endpoints.py",
-           "--reaction-id", str(reaction_id),
-           "--config", config]
+def run_relax(out_dir: Path, config: str, mlip: str, registry: str) -> int:
+    cmd = [sys.executable, "step2-relax/relax_endpoints.py",
+           "--output-dir", str(out_dir),
+           "--config", config,
+           "--mlip", mlip,
+           "--registry", registry]
     result = subprocess.run(cmd, cwd=ROOT)
     return result.returncode
 
 
-def run_neb(reaction_id: int, config: str, neb_args: dict) -> int:
-    cmd = [PYTHON, "step3-neb/neb_runner.py",
-           "--reaction-id", str(reaction_id),
-           "--config", config]
+def run_neb(out_dir: Path, config: str, mlip: str, registry: str,
+            neb_args: dict) -> int:
+    cmd = [sys.executable, "step3-neb/neb_runner.py",
+           "--output-dir", str(out_dir),
+           "--config", config,
+           "--mlip", mlip,
+           "--registry", registry]
     if "n_images" in neb_args:
         cmd += ["--n-images", str(neb_args["n_images"])]
     if "method" in neb_args:
@@ -224,17 +226,19 @@ def run_neb(reaction_id: int, config: str, neb_args: dict) -> int:
 
 def main():
     parser = argparse.ArgumentParser(description="Adaptive NEB retry loop")
-    parser.add_argument("--reaction-id", type=int, required=True)
-    parser.add_argument("--config", default="assets/neb_defaults.yaml")
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--reaction-id", type=int, default=None)
+    parser.add_argument("--config",      default="assets/neb_defaults.yaml")
+    parser.add_argument("--output-dir",  required=True)
+    parser.add_argument("--mlip",        required=True,
+                        help="MLIP name from registry")
+    parser.add_argument("--registry",    default="assets/mlip_registry.yaml")
     args = parser.parse_args()
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
     max_attempts = int(cfg["retry"]["max_attempts"])
-    out_dir = Path(args.output_dir) if args.output_dir else \
-              Path(f"outputs/reaction_{args.reaction_id:04d}")
+    out_dir = Path(args.output_dir)
 
     neb_args   = {}
     relax_args = {}
@@ -285,12 +289,12 @@ def main():
 
         if needs_rerelax:
             print("  Re-relaxing endpoints with tighter fmax...")
-            rc = run_relax(args.reaction_id, args.config)
+            rc = run_relax(out_dir, args.config, args.mlip, args.registry)
             if rc != 0:
                 print("  Endpoint re-relaxation failed — aborting retry", file=sys.stderr)
                 break
 
-        rc = run_neb(args.reaction_id, args.config, neb_args)
+        rc = run_neb(out_dir, args.config, args.mlip, args.registry, neb_args)
         if rc == 0:
             print(f"\nNEB converged after {attempt} retry attempt(s).")
             _write_retry_log(out_dir, retry_log, success=True)
@@ -300,7 +304,7 @@ def main():
 
     # all retries exhausted
     print(f"\nAll {max_attempts} retry attempts exhausted.")
-    _write_failure_report(out_dir, args.reaction_id, retry_log,
+    _write_failure_report(out_dir, args.mlip, retry_log,
                           json.loads((out_dir / "neb_result.json").read_text()),
                           json.loads((out_dir / "diagnostics.json").read_text()))
     _write_retry_log(out_dir, retry_log, success=False)
@@ -333,10 +337,10 @@ def _write_retry_log(out_dir: Path, log: list, success: bool) -> None:
     path.write_text(json.dumps({"success": success, "attempts": log}, indent=2))
 
 
-def _write_failure_report(out_dir: Path, reaction_id: int,
+def _write_failure_report(out_dir: Path, mlip: str,
                           retry_log: list, last_neb: dict, last_diag: dict) -> None:
     report = {
-        "reaction_id":      reaction_id,
+        "mlip":             mlip,
         "status":           "failed",
         "reason":           "retry_exhausted",
         "n_attempts":       len(retry_log),

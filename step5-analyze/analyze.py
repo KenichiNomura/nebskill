@@ -35,9 +35,13 @@ def main():
     forward_barrier_ev  = e_ts - e_reactant
     reverse_barrier_ev  = e_ts - e_product
 
-    dft_forward = endpoints["dft_forward_barrier_ev"]
-    mace_error  = forward_barrier_ev - dft_forward
-    rel_error   = (mace_error / dft_forward * 100) if dft_forward != 0 else None
+    dft_forward = endpoints.get("dft_forward_barrier_ev")
+    if dft_forward is not None:
+        mace_error = forward_barrier_ev - dft_forward
+        rel_error  = (mace_error / dft_forward * 100) if dft_forward != 0 else None
+    else:
+        mace_error = None
+        rel_error  = None
 
     import yaml
     with open(args.config) as f:
@@ -48,7 +52,7 @@ def main():
         "formula":                  endpoints["formula"],
         "rxn_key":                  endpoints["rxn_key"],
         "n_atoms":                  endpoints["n_atoms"],
-        "mace_model_size":          relaxed["mace_model_size"],
+        "mlip":                     relaxed.get("mlip", relaxed.get("mace_model_size", "unknown")),
         "n_images":                 neb_result["n_images"],
         "neb_method":               neb_result["method"],
         "forward_barrier_ev":       round(forward_barrier_ev,  4),
@@ -60,7 +64,7 @@ def main():
         "mace_e_ts_ev":             round(e_ts,       6),
         "mace_e_product_ev":        round(e_product,  6),
         "dft_forward_barrier_ev":   dft_forward,
-        "mace_vs_dft_error_ev":     round(mace_error,  4),
+        "mace_vs_dft_error_ev":     round(mace_error, 4) if mace_error is not None else None,
         "mace_vs_dft_relative_pct": round(rel_error, 2) if rel_error is not None else None,
         "neb_converged":            latest["converged"],
         "phase1_steps":             neb_result.get("phase1", {}).get("steps_taken"),
@@ -78,8 +82,10 @@ def main():
     print(f"  Reverse barrier:  {reverse_barrier_ev:.3f} eV  "
           f"({reverse_barrier_ev * EV_TO_KCAL:.1f} kcal/mol)")
     print(f"  TS image index:   {ts_idx}")
-    print(f"  DFT reference:    {dft_forward:.3f} eV")
-    print(f"  MACE-OFF error:   {mace_error:+.3f} eV  ({rel_error:+.1f}%)")
+    if dft_forward is not None and mace_error is not None:
+        print(f"  DFT reference:    {dft_forward:.3f} eV")
+        err_str = f"  ({rel_error:+.1f}%)" if rel_error is not None else ""
+        print(f"  MLIP error:       {mace_error:+.3f} eV{err_str}")
     print(f"Report written to {out_path}")
 
 
