@@ -1,96 +1,86 @@
 # Step 5 — Analyze and Report
 
-Produces all output artifacts from a converged NEB calculation and generates
-the LLM agent's final interpretation for the user.
+Produces all output artifacts from a converged NEB calculation for one
+MLIP, then (after all MLIPs finish) aggregates a cross-MLIP comparison.
 
-## Scripts
+## Per-MLIP scripts
 
 ```bash
-python step5-analyze/analyze.py  --reaction-id INT --config assets/neb_defaults.yaml
-python step5-analyze/plot.py     --reaction-id INT
-python step5-analyze/writer.py   --reaction-id INT
+python step5-analyze/analyze.py --output-dir outputs/{run_id}/{mlip} \
+    --config assets/neb_defaults.yaml
+python step5-analyze/plot.py    --output-dir outputs/{run_id}/{mlip}
+python step5-analyze/writer.py  --output-dir outputs/{run_id}/{mlip}
 ```
 
-All three are called in sequence by `agent/llm_agent.py` after convergence.
+All three are called in sequence by `step0-multi/runner.py` after each
+MLIP's NEB converges.
 
 ## analyze.py — compute results
 
-Reads `neb_result.json` and `relaxed_endpoints.json`. Computes:
+Reads `neb_result.json`, `relaxed_endpoints.json`, and `endpoints.json`.
+Computes:
 
-- **Forward barrier** (eV): `E_TS - E_reactant` using MACE-OFF energies
+- **Forward barrier** (eV): `E_TS - E_reactant`
 - **Reverse barrier** (eV): `E_TS - E_product`
-- **Forward barrier (kcal/mol)**: multiply by 23.0609
+- Both also reported in kcal/mol (×23.0609)
 - **TS image index**: image with maximum energy in the converged NEB
-- **MACE-OFF vs DFT comparison**:
-  - DFT barrier from `dft_barrier_ev` in endpoints.json (ωB97x/6-31G*)
-  - Error: `mace_barrier - dft_barrier` (eV)
-  - Relative error (%)
+- **MLIP vs DFT comparison** (only if `endpoints.json` carries a DFT
+  reference — `null` for user-supplied structures, in which case this is
+  skipped, not an error)
 
-Writes `outputs/reaction_{id:04d}/report.json`:
+Writes `report.json` in `--output-dir`:
 ```json
 {
-  "reaction_id": 42,
+  "run_id": "reactant-product",
   "formula": "C4H8O",
   "n_atoms": 13,
+  "mlip": "nequip-oam-l",
   "forward_barrier_ev": 1.31,
   "forward_barrier_kcal": 30.2,
   "reverse_barrier_ev": 0.87,
   "ts_image_idx": 5,
-  "mace_vs_dft_error_ev": 0.07,
-  "mace_vs_dft_relative_pct": 5.6,
-  "dft_barrier_ev": 1.24,
+  "dft_forward_barrier_ev": null,
   "n_images": 9,
-  "method": "improvedtangent",
-  "model_size": "medium",
-  "n_retry_attempts": 0,
-  "converged": true
+  "neb_method": "improvedtangent",
+  "neb_converged": true
 }
 ```
 
 ## plot.py — energy profile
 
-Produces `outputs/reaction_{id:04d}/energy_profile.png`:
+Produces `energy_profile.png` in `--output-dir`:
 - X axis: image index (0 = reactant, N-1 = product)
 - Y axis: energy relative to reactant (eV)
 - Annotations: forward barrier, reverse barrier, TS image marker
-- DFT reference barrier shown as dashed horizontal line
+- DFT reference barrier shown as a dashed line only if present
 
-## writer.py — trajectory and log
+## writer.py — convergence log
 
-- `neb_trajectory.xyz`: all NEB images at final convergence, written as
-  extended XYZ with energy and forces as comment fields (ASE format)
-- `convergence.log`: tab-separated, one row per optimizer step:
-  `step | phase | fmax | max_image_force | time_s`
+`convergence.log` in `--output-dir`: tab-separated, one row per NEB phase
+(`phase | steps | fmax_target | fmax_final | converged | wall_time_s`).
+Also confirms `neb_trajectory.xyz` exists and reports its frame count.
 
-## Batch aggregation (step0-batch/aggregate.py)
+## Cross-MLIP aggregation (step5-analyze/aggregate.py)
 
-After all jobs complete, `aggregate.py` reads all `report.json` files and
-writes:
-
-`outputs/summary.json`:
-```json
-{
-  "n_total": 20,
-  "n_done": 18,
-  "n_failed": 2,
-  "barrier_mean_ev": 1.18,
-  "barrier_std_ev": 0.34,
-  "mace_dft_mae_ev": 0.09,
-  "mace_dft_rmse_ev": 0.13
-}
+After all MLIPs finish, `step0-multi/runner.py` calls:
+```bash
+python step5-analyze/aggregate.py --endpoints-dir outputs/{run_id}
 ```
 
-`outputs/summary.png`: two panels
-- Left: histogram of MACE-OFF forward barriers
-- Right: parity plot of MACE-OFF vs DFT barriers with MAE annotation
+Reads `report.json` from each `outputs/{run_id}/{mlip}/` subdirectory and
+writes:
 
-## LLM interpretation (final step)
+- `outputs/{run_id}/summary.json` — forward/reverse barriers and
+  convergence status per MLIP
+- `outputs/{run_id}/comparison.png` — bar chart of forward/reverse barriers
+  across MLIPs (non-converged MLIPs shown with reduced opacity)
 
-After artifacts are written, the agent generates a natural language summary
-for the user covering:
+## Final report to the user
 
-1. Forward and reverse barriers in eV and kcal/mol
-2. How MACE-OFF compares to the Transition1x DFT reference
+After artifacts are written, summarize for the user:
+
+1. Forward and reverse barriers (eV and kcal/mol) for each MLIP
+2. Where MLIPs agree or disagree, and by how much
 3. Location and character of the transition state
-4. Any convergence issues encountered and how they were resolved
-5. For batch mode: aggregate accuracy statistics and failure analysis
+4. Any convergence issues encountered per MLIP and how retry resolved them
+   (or didn't)

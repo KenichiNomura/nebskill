@@ -91,9 +91,8 @@ def relax_structure(
 
 def main():
     parser = argparse.ArgumentParser(description="Relax NEB endpoints with chosen MLIP")
-    parser.add_argument("--reaction-id", type=int, default=None)
     parser.add_argument("--config",   default="assets/neb_defaults.yaml")
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", required=True)
     parser.add_argument("--mlip",     default=None,
                         help="MLIP name from registry (default: mace-off)")
     parser.add_argument("--registry", default="assets/mlip_registry.yaml")
@@ -102,13 +101,7 @@ def main():
     cfg = load_config(args.config)
     relax_cfg = cfg["relaxation"]
 
-    if args.output_dir:
-        out_dir = Path(args.output_dir)
-    elif args.reaction_id is not None:
-        out_dir = Path(f"outputs/reaction_{args.reaction_id:04d}")
-    else:
-        print("ERROR: specify --output-dir or --reaction-id", file=sys.stderr)
-        sys.exit(1)
+    out_dir = Path(args.output_dir)
     endpoints_path = out_dir / "endpoints.json"
 
     if not endpoints_path.exists():
@@ -144,7 +137,7 @@ def main():
 
     if failure:
         report = {
-            "reaction_id": args.reaction_id,
+            "run_id":      endpoints.get("run_id", "custom"),
             "status":      "failed",
             "reason":      "endpoint_relaxation_failed",
             "detail":      failure,
@@ -156,7 +149,7 @@ def main():
         sys.exit(3)
 
     output = {
-        "reaction_id":        endpoints.get("reaction_id", endpoints.get("run_id", "custom")),
+        "run_id":             endpoints.get("run_id", "custom"),
         "formula":            endpoints["formula"],
         "rxn_key":            endpoints.get("rxn_key", "custom"),
         "dft_forward_barrier_ev": endpoints.get("dft_forward_barrier_ev"),

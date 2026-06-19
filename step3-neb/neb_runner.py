@@ -132,9 +132,8 @@ def run_phase(neb: NEB, images: list, fmax: float, max_steps: int,
 
 def main():
     parser = argparse.ArgumentParser(description="Run two-phase NEB with chosen MLIP")
-    parser.add_argument("--reaction-id", type=int, default=None)
     parser.add_argument("--config",   default="assets/neb_defaults.yaml")
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", required=True)
     parser.add_argument("--mlip",     default=None,
                         help="MLIP name from registry")
     parser.add_argument("--registry", default="assets/mlip_registry.yaml")
@@ -155,13 +154,7 @@ def main():
     if args.spring_constant:
         neb_cfg["spring_constant"] = args.spring_constant
 
-    if args.output_dir:
-        out_dir = Path(args.output_dir)
-    elif args.reaction_id is not None:
-        out_dir = Path(f"outputs/reaction_{args.reaction_id:04d}")
-    else:
-        print("ERROR: specify --output-dir or --reaction-id", file=sys.stderr)
-        sys.exit(1)
+    out_dir = Path(args.output_dir)
     relaxed_path = out_dir / "relaxed_endpoints.json"
 
     if not relaxed_path.exists():

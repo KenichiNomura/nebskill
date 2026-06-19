@@ -12,12 +12,10 @@ from lib.neb_diagnostics import diagnose
 
 def main():
     parser = argparse.ArgumentParser(description="Compute NEB diagnostics")
-    parser.add_argument("--reaction-id", type=int, required=True)
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
-    out_dir = Path(args.output_dir) if args.output_dir else \
-              Path(f"outputs/reaction_{args.reaction_id:04d}")
+    out_dir = Path(args.output_dir)
 
     neb_result_path = out_dir / "neb_result.json"
     if not neb_result_path.exists():

@@ -9,9 +9,24 @@ Usage (interactive GPU node or inside a SLURM job):
 Or submit as a short SLURM job:
     sbatch step0-models/compile_job.sh
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+# Ensure nvcc is discoverable for AOT-Inductor on systems without CUDA_HOME set.
+# Must happen before any subprocess or torch import so subprocesses inherit it.
+if "CUDA_HOME" not in os.environ:
+    for _candidate in [
+        "/opt/nvidia/hpc_sdk/Linux_x86_64/25.5/cuda",  # CUDA 12.9
+        "/opt/nvidia/hpc_sdk/Linux_x86_64/24.5/cuda",  # CUDA 12.4
+        "/usr/local/cuda",
+    ]:
+        if os.path.isfile(f"{_candidate}/bin/nvcc"):
+            os.environ["CUDA_HOME"] = _candidate
+            os.environ["PATH"] = f"{_candidate}/bin:{os.environ.get('PATH', '')}"
+            print(f"[compile.py] CUDA_HOME set to {_candidate}")
+            break
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 

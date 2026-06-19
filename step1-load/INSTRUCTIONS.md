@@ -1,67 +1,60 @@
-# Step 1 — Load Reaction from Transition1x
+# Step 1 — Load Endpoints
 
-Loads one reaction from the Transition1x HDF5 dataset, identifies the
-transition state, validates the reaction, and extracts the two endpoint
-structures for NEB.
+Loads the user-supplied initial and final structures, validates that they
+match (same atom count and species order), detects periodicity, and writes
+`endpoints.json` for the rest of the pipeline.
 
 ## Script
 
 ```bash
-python step1-load/load_dataset.py --reaction-id INT --config assets/neb_defaults.yaml
+python step1-load/load_xyz.py --initial <path> --final <path> \
+    [--run-id <label>] [--output-dir <path>]
 ```
 
-Output: writes `outputs/reaction_{id:04d}/endpoints.json` with:
-- `reactant`: ASE Atoms dict (positions, numbers, cell, pbc)
-- `product`: ASE Atoms dict
-- `ts_frame_idx`: index of the TS frame in the trajectory
-- `dft_barrier_ev`: DFT barrier height (forward, eV)
-- `dft_energies`: full energy array along trajectory
-- `n_atoms`: number of atoms
-- `formula`: chemical formula
+Accepts any ASE-readable format (xyz, extxyz, POSCAR/CONTCAR, cif, ...).
+`--run-id` defaults to `{initial-stem}-{final-stem}`; output defaults to
+`outputs/{run_id}/`.
 
-## Auto-download
+## Validation
 
-If `data/Transition1x.h5` is missing, `download.py` is called automatically:
+- **Atom count**: `--initial` and `--final` must have the same number of
+  atoms — error otherwise.
+- **Species order**: atomic numbers must appear in the same order in both
+  files — error otherwise (this is what lets NEB interpolate directly
+  between the two position arrays).
 
-```bash
-python step1-load/download.py
+## Periodicity detection
+
+A system is treated as periodic if `pbc.any()` is true AND the cell is
+non-zero. This sets `is_periodic` in `endpoints.json`, which downstream
+steps use to decide whether to disable
+`remove_rotation_and_translation` and to use the minimum-image convention
+during NEB interpolation.
+
+## Output: endpoints.json
+
+```json
+{
+  "run_id": "reactant-product",
+  "formula": "C4H8O",
+  "rxn_key": "custom",
+  "n_atoms": 13,
+  "initial_xyz": "/abs/path/reactant.xyz",
+  "final_xyz": "/abs/path/product.xyz",
+  "is_periodic": false,
+  "dft_forward_barrier_ev": null,
+  "dft_reverse_barrier_ev": null,
+  "ts_reference": null,
+  "reactant": { "positions": [...], "atomic_numbers": [...], "pbc": [...], "cell": [...] },
+  "product":  { "..." }
+}
 ```
 
-Downloads from `https://ndownloader.figshare.com/files/36035789` (~6.2 GB)
-with a progress bar. Resumes interrupted downloads via HTTP Range requests.
+`dft_*_barrier_ev` and `ts_reference` are always `null` for user-supplied
+structures (no DFT ground truth) — downstream steps treat this as "skip the
+MLIP-vs-DFT comparison," not as an error.
 
-## HDF5 structure
+## Next step
 
-The Transition1x file is organized as:
-```
-/                          root
-  rxn_{id}/                one group per reaction
-    positions/             (n_frames, n_atoms, 3) Å
-    atomic_numbers/        (n_atoms,)
-    energies/              (n_frames,) eV  — ωB97x/6-31G*
-    forces/                (n_frames, n_atoms, 3) eV/Å
-```
-
-See [references/transition1x_schema.md](../references/transition1x_schema.md)
-for the full schema.
-
-## TS detection and endpoint selection logic
-
-1. Load energy array for the reaction
-2. Find TS: `ts_idx = argmax(energies)`
-3. **Edge check**: if `ts_idx < N` or `ts_idx > n_frames - N - 1` (N=2),
-   double the planned `n_images` via interpolation (flag in endpoints.json)
-4. **Multi-peak check**: detect secondary peaks; use global maximum only
-5. **Barrier check**: compute `barrier = E[ts_idx] - max(E[0:ts_idx].min(), E[ts_idx+1:].min())`
-   If `barrier < 0.1 eV`: skip reaction, log to queue.json as `skipped`, advance to next
-6. Select endpoints:
-   - `reactant` = frame with lowest energy in `[0 : ts_idx]`
-   - `product`  = frame with lowest energy in `[ts_idx+1 : n_frames]`
-7. Write `outputs/reaction_{id:04d}/endpoints.json`
-
-## Error handling
-
-- Missing HDF5 file → trigger auto-download
-- Reaction group not found → log error, mark queue as `failed`
-- Barrier too low → mark queue as `skipped`, move to next reaction
-- Endpoint relaxation will handle non-minimum structures (mandatory in step 2)
+`step0-multi/runner.py --endpoints-dir outputs/{run_id}` runs the rest of
+the pipeline (relax → NEB → monitor/retry → analyze) once per MLIP.

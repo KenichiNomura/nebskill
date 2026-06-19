@@ -12,13 +12,11 @@ EV_TO_KCAL = 23.0609
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze converged NEB results")
-    parser.add_argument("--reaction-id", type=int, required=True)
     parser.add_argument("--config", default="assets/neb_defaults.yaml")
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
-    out_dir = Path(args.output_dir) if args.output_dir else \
-              Path(f"outputs/reaction_{args.reaction_id:04d}")
+    out_dir = Path(args.output_dir)
 
     neb_result   = json.loads((out_dir / "neb_result.json").read_text())
     relaxed      = json.loads((out_dir / "relaxed_endpoints.json").read_text())
@@ -48,7 +46,7 @@ def main():
         cfg = yaml.safe_load(f)
 
     report = {
-        "reaction_id":              args.reaction_id,
+        "run_id":                   endpoints.get("run_id", "custom"),
         "formula":                  endpoints["formula"],
         "rxn_key":                  endpoints["rxn_key"],
         "n_atoms":                  endpoints["n_atoms"],
@@ -76,7 +74,7 @@ def main():
     out_path = out_dir / "report.json"
     out_path.write_text(json.dumps(report, indent=2))
 
-    print(f"Reaction {args.reaction_id} ({report['formula']}) — NEB analysis")
+    print(f"{report['run_id']} ({report['formula']}) — NEB analysis [{report['mlip']}]")
     print(f"  Forward barrier:  {forward_barrier_ev:.3f} eV  "
           f"({forward_barrier_ev * EV_TO_KCAL:.1f} kcal/mol)")
     print(f"  Reverse barrier:  {reverse_barrier_ev:.3f} eV  "

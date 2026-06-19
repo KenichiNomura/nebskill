@@ -1,7 +1,7 @@
 """Orchestrate a multi-MLIP NEB campaign over a fixed endpoint pair.
 
-Reads endpoints.json produced by step1-load/load_xyz.py (or load_dataset.py),
-then runs steps 2–5 for each MLIP in the configured list.
+Reads endpoints.json produced by step1-load/load_xyz.py, then runs steps
+2–5 for each MLIP in the configured list.
 
 Usage:
     python step0-multi/runner.py \
@@ -119,17 +119,18 @@ def main():
             continue
 
         # ── interactive sequential ────────────────────────────────────────────
-        common = ["--output-dir", str(out_dir), "--config", args.config,
-                  "--registry", args.registry]
+        mlip_args    = ["--mlip", mlip, "--output-dir", str(out_dir),
+                        "--config", args.config, "--registry", args.registry]
+        analyze_args = ["--output-dir", str(out_dir), "--config", args.config]
+        out_dir_args = ["--output-dir", str(out_dir)]
         try:
-            _run("step2-relax/relax_endpoints.py", ["--mlip", mlip] + common)
-            rc = _run("step3-neb/neb_runner.py",   ["--mlip", mlip] + common,
-                      allow_exit4=True)
+            _run("step2-relax/relax_endpoints.py", mlip_args)
+            rc = _run("step3-neb/neb_runner.py",   mlip_args, allow_exit4=True)
             if rc == 4:
-                _run("step4-monitor/retry.py",     ["--mlip", mlip] + common)
-            _run("step5-analyze/analyze.py", common)
-            _run("step5-analyze/plot.py",    [a for a in common if "config" not in a])
-            _run("step5-analyze/writer.py",  [a for a in common if "config" not in a])
+                _run("step4-monitor/retry.py",     mlip_args)
+            _run("step5-analyze/analyze.py", analyze_args)
+            _run("step5-analyze/plot.py",    out_dir_args)
+            _run("step5-analyze/writer.py",  out_dir_args)
         except RuntimeError as exc:
             print(f"  FAILED for {mlip}: {exc}")
 

@@ -16,6 +16,13 @@ mace-off:
   device: auto
   dtype: float64
 
+mace-omat:
+  package: mace
+  model_type: mace-mp
+  model_size: medium-omat-0
+  device: auto
+  dtype: float64
+
 # ── CHGNet ────────────────────────────────────────────────────────────────────
 chgnet:
   package: chgnet
@@ -31,6 +38,19 @@ m3gnet:
 sevennet:
   package: sevenn
   checkpoint: 7net-0
+  device: auto
+
+# ── PET-MAD-1.5 (r2SCAN, materials + molecules, universal) ───────────────────
+pet-mad-s:
+  package: upet
+  model_name: pet-mad-s
+  version: latest
+  device: auto
+
+pet-mad-xs:
+  package: upet
+  model_name: pet-mad-xs
+  version: latest
   device: auto
 
 # ── PET-OAM-XL (rank 2 Matbench) ─────────────────────────────────────────────
@@ -84,6 +104,14 @@ nequip-oam-s:
 nequip-mp-l:
   package: nequip
   compiled_model: step0-models/models/NequIP-MP-L.nequip.pt2
+  device: cuda
+
+# ── Allegro-FM (Zenodo 14915165, NequIP 0.6.1 / Allegro 0.3.0 deployed .pt) ──
+# Universal: trained on H–Pu (all periodic table). r_max=5.2 Å. arXiv:2502.06073.
+# species_to_type_name omitted → NequIPCalculator uses full periodic-table mapping.
+allegro-fm-256:
+  package: nequip-legacy
+  deployed_model: step0-models/models/afm256_01_HL.pt
   device: cuda
 
 # ── Allegro foundation models (compiled from Zenodo) ─────────────────────────

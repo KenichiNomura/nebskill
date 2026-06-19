@@ -12,8 +12,7 @@ EV_TO_KCAL = 23.0609
 
 def main():
     parser = argparse.ArgumentParser(description="Plot NEB energy profile")
-    parser.add_argument("--reaction-id", type=int, required=True)
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
     import matplotlib
@@ -21,8 +20,7 @@ def main():
     import matplotlib.pyplot as plt
     import numpy as np
 
-    out_dir = Path(args.output_dir) if args.output_dir else \
-              Path(f"outputs/reaction_{args.reaction_id:04d}")
+    out_dir = Path(args.output_dir)
 
     report = json.loads((out_dir / "report.json").read_text())
     energies = np.array(report["neb_energies"])
@@ -37,7 +35,7 @@ def main():
 
     # main NEB path
     x = np.arange(n)
-    ax.plot(x, e_rel, "o-", color="steelblue", lw=2, ms=7, label="MACE-OFF NEB")
+    ax.plot(x, e_rel, "o-", color="steelblue", lw=2, ms=7, label=report.get("mlip", "NEB"))
 
     # TS marker
     ax.plot(ts_idx, e_rel[ts_idx], "*", color="red", ms=16, zorder=5,
@@ -68,8 +66,9 @@ def main():
 
     ax.set_xlabel("Image index", fontsize=12)
     ax.set_ylabel("Energy relative to reactant (eV)", fontsize=12)
+    run_label = report.get("run_id", report.get("rxn_key", "?"))
     ax.set_title(
-        f"NEB energy profile — {report['formula']} (rxn {report['reaction_id']})",
+        f"NEB energy profile — {report['formula']} ({run_label}, {report.get('mlip', '?')})",
         fontsize=13,
     )
     ax.legend(fontsize=9)

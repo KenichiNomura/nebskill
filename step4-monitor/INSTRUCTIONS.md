@@ -1,37 +1,42 @@
 # Step 4 — Monitor and Retry
 
 Diagnoses NEB convergence failures and uses the LLM agent to choose an
-intervention. Up to 3 retry attempts are made before issuing a structured
-failure report.
+intervention. Up to `retry.max_attempts` retries are made before issuing a
+structured failure report.
 
 ## Scripts
 
 ```bash
-python step4-monitor/diagnostics.py --reaction-id INT   # compute diagnostic payload
-python step4-monitor/retry.py --reaction-id INT --config assets/neb_defaults.yaml
+python step4-monitor/diagnostics.py --output-dir outputs/{run_id}/{mlip}
+python step4-monitor/retry.py --output-dir outputs/{run_id}/{mlip} \
+    --mlip <mlip_name> --config assets/neb_defaults.yaml \
+    --registry assets/mlip_registry.yaml
 ```
 
-`retry.py` orchestrates the full retry loop: calls diagnostics, sends payload
-to LLM agent, applies the chosen intervention, re-runs step 3.
+`retry.py` orchestrates the full retry loop: computes diagnostics, sends
+the payload to the ALCF LLM agent for an intervention, applies it, and
+re-runs step 3 (and step 2 if the intervention requires tighter endpoint
+relaxation).
 
-## Diagnostic payload (diagnostics.py)
+## Diagnostic payload (diagnostics.py / lib/neb_diagnostics.py)
 
 Computed from the last `neb_result.json`:
 
 | Metric | Description | Failure signal |
 |---|---|---|
-| `per_image_fmax` | max force per image (eV/Å) | high forces concentrated at specific images |
-| `inter_image_rmsd` | RMSD between consecutive images (Å) | < 0.05 Å = collapse; highly uneven = bunching |
+| `forces_per_image` | max force per image (eV/Å) | high forces concentrated at specific images |
+| `inter_image_rmsd` | RMSD between consecutive images (Å) | low = collapse; highly uneven = bunching |
 | `energy_smoothness` | second derivative of energy profile | large values = kinking or discontinuity |
 | `steps_taken` | steps used vs cap | near cap = almost converged vs stuck |
 | `phase` | which phase failed (1 or 2) | phase 2 failures need different fixes |
 
-Written to `outputs/reaction_{id:04d}/diagnostics.json`.
+Written to `diagnostics.json` in the same `--output-dir`.
 
 ## LLM intervention selection
 
-The diagnostic payload is sent to the LLM agent via OpenAI function calling.
-The agent selects exactly one intervention per retry using one of these tools:
+The diagnostic payload is sent to the LLM agent via OpenAI function calling
+(`step4-monitor/retry.py:call_llm_for_intervention`). The agent selects
+exactly one intervention per retry attempt:
 
 ```
 set_n_images(n: int)
@@ -40,48 +45,51 @@ set_n_images(n: int)
 adjust_spring_constant(k: float)
   → use when inter_image_rmsd shows collapse (increase k) or over-tension
 
-switch_method(method: "string")
+switch_method(method: "string" | "improvedtangent" | "spline")
   → use when energy_smoothness shows kinking or energy discontinuities
 
 tighten_endpoint_relaxation(fmax: float)
-  → use when per_image_fmax is high at endpoint images (0 or n-1),
-    suggesting endpoints are not true minima; re-runs step 2 with tighter fmax
+  → use when forces_per_image is high at endpoint images, suggesting
+    endpoints are not true minima; re-runs step 2 with tighter fmax
 ```
 
-The agent must also provide a brief `reasoning` string explaining the choice.
-This is logged to `outputs/reaction_{id:04d}/retry_log.json`.
+The agent must also provide a brief `reasoning` string. If the LLM call
+itself fails (token expired, endpoint down), a fixed escalation fallback
+(`_fallback_intervention`) is used instead so the retry loop still makes
+progress.
+
+This is logged to `retry_log.json` in `--output-dir`.
 
 ## Retry loop (retry.py)
 
 ```
-attempt = 0
-while attempt < max_attempts:
-    run step 3 (neb_runner.py)
-    if converged: break
-    compute diagnostics
-    send to LLM agent → get intervention
-    apply intervention to config
-    attempt += 1
+for attempt in 1..max_attempts:
+    read neb_result.json, compute diagnostics
+    call LLM (or fallback) → get intervention
+    apply intervention; re-relax endpoints if needed
+    re-run step 3 (neb_runner.py)
+    if converged: write retry_log.json (success=true), exit 0
 
 if not converged after max_attempts:
-    write failure report (see below)
-    mark queue.json as failed
+    write failure_report.json
+    write retry_log.json (success=false)
+    exit 5
 ```
 
 ## Structured failure report
 
-Written to `outputs/reaction_{id:04d}/failure_report.json`:
+Written to `failure_report.json` in `--output-dir`:
 
 ```json
 {
-  "reaction_id": 42,
-  "attempts": 3,
-  "final_fmax": 0.38,
-  "final_phase": 2,
+  "mlip": "nequip-oam-l",
+  "status": "failed",
+  "reason": "retry_exhausted",
+  "n_attempts": 3,
   "interventions": [
-    {"attempt": 1, "tool": "switch_method",    "value": "string",  "reasoning": "..."},
-    {"attempt": 2, "tool": "set_n_images",     "value": 13,        "reasoning": "..."},
-    {"attempt": 3, "tool": "adjust_spring_constant", "value": 0.2, "reasoning": "..."}
+    {"attempt": 1, "tool": "switch_method", "args": {"method": "string", "reasoning": "..."}},
+    {"attempt": 2, "tool": "set_n_images", "args": {"n": 13, "reasoning": "..."}},
+    {"attempt": 3, "tool": "adjust_spring_constant", "args": {"k": 0.2, "reasoning": "..."}}
   ],
   "last_diagnostics": { "..." },
   "last_neb_result":  { "..." }
@@ -91,6 +99,8 @@ Written to `outputs/reaction_{id:04d}/failure_report.json`:
 ## Notes
 
 - Endpoint relaxation failures (step 2) are NOT counted as retry attempts
-- The LLM agent is called via `agent/llm_agent.py` — Globus token must be valid
-- Each retry starts from the last converged NEB geometry, not from scratch,
-  unless `tighten_endpoint_relaxation` is selected (which re-runs from step 2)
+- The LLM call uses `agent/auth.py:get_access_token()` — the Globus token
+  must be valid (`python agent/auth.py login`)
+- Retries reuse the last NEB geometry by re-running step 3 with updated
+  parameters, except `tighten_endpoint_relaxation`, which re-runs from
+  step 2

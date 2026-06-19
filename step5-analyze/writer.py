@@ -10,12 +10,10 @@ sys.path.insert(0, str(ROOT))
 
 def main():
     parser = argparse.ArgumentParser(description="Write NEB convergence log")
-    parser.add_argument("--reaction-id", type=int, required=True)
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
-    out_dir = Path(args.output_dir) if args.output_dir else \
-              Path(f"outputs/reaction_{args.reaction_id:04d}")
+    out_dir = Path(args.output_dir)
 
     neb_result = json.loads((out_dir / "neb_result.json").read_text())
 

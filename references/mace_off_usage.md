@@ -1,11 +1,12 @@
-# MACE-OFF Usage Reference
+# MACE Usage Reference
 
-## What is MACE-OFF
+## What is MACE-OFF / MACE-MP
 
 MACE-OFF23 is a pre-trained transferable machine learning force field for
 organic molecules, based on the MACE equivariant architecture. It covers
-elements H, C, N, O, F, S, Cl — the core organic chemistry set present
-in Transition1x.
+elements H, C, N, O, F, S, Cl. MACE-MP(A) is the companion foundation model
+trained on inorganic/materials data (broader element coverage, see
+`assets/mlip_registry.yaml`'s `mace-mp`/`mace-omat` entries).
 
 License: Academic Software License (ASL) — free for academic use only.
 
@@ -56,8 +57,10 @@ and `allow_shared_calculator=True` in the NEB object.
 
 ## Supported elements
 
-H, C, N, O, F, S, Cl. Transition1x reactions use only these elements.
-For systems containing other elements, use a different MLIP.
+MACE-OFF: H, C, N, O, F, S, Cl. For systems with other elements, use
+`mace-mp`/`mace-omat` or a different MLIP family (NequIP/Allegro OAM models
+cover the full periodic table — see
+[references/nequip_allegro_usage.md](nequip_allegro_usage.md)).
 
 ## Known warnings
 

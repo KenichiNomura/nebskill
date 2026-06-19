@@ -1,8 +1,7 @@
-"""Load NEB endpoints from two user-provided XYZ files.
+"""Load NEB endpoints from two user-provided structure files.
 
-Replaces the Transition1x loader (load_dataset.py) when the user supplies
-their own initial and final configurations.  Handles both periodic (bulk/
-surface, pbc=T T T) and isolated/molecular (pbc=F F F) systems.
+Handles both periodic (bulk/surface, pbc=T T T) and isolated/molecular
+(pbc=F F F) systems.
 
 Usage:
     python step1-load/load_xyz.py \

@@ -125,16 +125,32 @@ fix the problem. Base your decision on the failure_mode, energy smoothness
 Be concise and precise in your reasoning."""
 
 
-def call_llm_for_intervention(diagnostics: dict, cfg: dict) -> tuple[str, dict]:
+def call_llm_for_intervention(diagnostics: dict, cfg: dict,
+                              allowed_tools: list[str] | None = None) -> tuple[str, dict]:
     """
     Ask the LLM agent to choose one intervention.
     Returns (tool_name, tool_args).
+
+    If `allowed_tools` is given, the tool schema offered to the LLM is
+    restricted to those names — used to force diversification away from a
+    tool that has stopped helping.
     """
     token = get_access_token()
     client = OpenAI(
         base_url=cfg["alcf"]["base_url"],
         api_key=token,
     )
+
+    tools = TOOLS
+    diversify_note = ""
+    if allowed_tools:
+        tools = [t for t in TOOLS if t["function"]["name"] in allowed_tools]
+        diversify_note = (
+            f"\n\nNote: adjust_spring_constant has already been tried "
+            f"repeatedly without reducing fmax, so it has been removed from "
+            f"the available tools for this attempt — choose from "
+            f"{allowed_tools} instead."
+        )
 
     user_message = (
         f"NEB convergence failure diagnostics:\n"
@@ -143,6 +159,7 @@ def call_llm_for_intervention(diagnostics: dict, cfg: dict) -> tuple[str, dict]:
         f"method={diagnostics['method']}, "
         f"spring_constant={diagnostics['spring_constant']} eV/Å.\n\n"
         f"Choose exactly one intervention tool to fix this failure."
+        f"{diversify_note}"
     )
 
     response = client.chat.completions.create(
@@ -151,7 +168,7 @@ def call_llm_for_intervention(diagnostics: dict, cfg: dict) -> tuple[str, dict]:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_message},
         ],
-        tools=TOOLS,
+        tools=tools,
         tool_choice="required",
     )
 
@@ -226,7 +243,6 @@ def run_neb(out_dir: Path, config: str, mlip: str, registry: str,
 
 def main():
     parser = argparse.ArgumentParser(description="Adaptive NEB retry loop")
-    parser.add_argument("--reaction-id", type=int, default=None)
     parser.add_argument("--config",      default="assets/neb_defaults.yaml")
     parser.add_argument("--output-dir",  required=True)
     parser.add_argument("--mlip",        required=True,
@@ -240,9 +256,14 @@ def main():
     max_attempts = int(cfg["retry"]["max_attempts"])
     out_dir = Path(args.output_dir)
 
-    neb_args   = {}
-    relax_args = {}
-    retry_log  = []
+    neb_args    = {}
+    relax_args  = {}
+    retry_log   = []
+    tool_trace  = []   # tool chosen at each attempt so far
+    fmax_trace  = []   # diagnostics fmax_final seen at the start of each attempt
+
+    DIVERSIFY_AWAY_FROM = "adjust_spring_constant"
+    DIVERSIFY_TARGETS   = ["switch_method", "set_n_images"]
 
     for attempt in range(1, max_attempts + 1):
         print(f"\n--- Retry attempt {attempt}/{max_attempts} ---")
@@ -256,17 +277,36 @@ def main():
         diagnostics  = diagnose(neb_result)
         diag_path    = out_dir / "diagnostics.json"
         diag_path.write_text(json.dumps(diagnostics, indent=2))
+        fmax_trace.append(diagnostics["fmax_final"])
 
         print(f"  Failure mode: {diagnostics['failure_mode']}")
+
+        # Strategy: if the last two attempts both adjusted the spring
+        # constant and the most recent one did not reduce fmax, stop
+        # escalating the same knob and force a different intervention.
+        force_diverse = (
+            len(tool_trace) >= 2
+            and tool_trace[-1] == DIVERSIFY_AWAY_FROM
+            and tool_trace[-2] == DIVERSIFY_AWAY_FROM
+            and fmax_trace[-1] >= fmax_trace[-2]
+        )
+
+        allowed_tools = DIVERSIFY_TARGETS if force_diverse else None
+        if force_diverse:
+            print(f"  adjust_spring_constant ineffective for 2 consecutive "
+                  f"attempts (fmax {fmax_trace[-2]:.4f} -> {fmax_trace[-1]:.4f}) "
+                  f"— forcing diversification to {DIVERSIFY_TARGETS}")
+
         print(f"  Calling LLM agent for intervention...")
 
         try:
-            fn_name, fn_args = call_llm_for_intervention(diagnostics, cfg)
+            fn_name, fn_args = call_llm_for_intervention(diagnostics, cfg, allowed_tools)
         except Exception as e:
             print(f"  LLM call failed: {e}", file=sys.stderr)
-            fn_name, fn_args = _fallback_intervention(diagnostics, attempt)
+            fn_name, fn_args = _fallback_intervention(diagnostics, attempt, force_diverse)
             print(f"  Using fallback intervention: {fn_name}")
 
+        tool_trace.append(fn_name)
         print(f"  Intervention: {fn_name}({fn_args})")
         print(f"  Reasoning: {fn_args.get('reasoning', '')}")
 
@@ -302,17 +342,36 @@ def main():
 
         print(f"  NEB still not converged (exit code {rc})")
 
-    # all retries exhausted
+    # all retries exhausted — recompute diagnostics from the final attempt's
+    # actual result; diagnostics.json on disk still reflects the attempt
+    # before last, since diagnose() is only called at the top of the loop.
     print(f"\nAll {max_attempts} retry attempts exhausted.")
+    final_neb_result = json.loads((out_dir / "neb_result.json").read_text())
+    final_diagnostics = diagnose(final_neb_result)
+    (out_dir / "diagnostics.json").write_text(json.dumps(final_diagnostics, indent=2))
     _write_failure_report(out_dir, args.mlip, retry_log,
-                          json.loads((out_dir / "neb_result.json").read_text()),
-                          json.loads((out_dir / "diagnostics.json").read_text()))
+                          final_neb_result, final_diagnostics)
     _write_retry_log(out_dir, retry_log, success=False)
     sys.exit(5)
 
 
-def _fallback_intervention(diagnostics: dict, attempt: int) -> tuple[str, dict]:
+def _fallback_intervention(diagnostics: dict, attempt: int,
+                           force_diverse: bool = False) -> tuple[str, dict]:
     """Fixed escalation used when LLM call fails."""
+    if force_diverse:
+        if diagnostics["failure_mode"] == "kinking":
+            return "switch_method", {
+                "method": "string",
+                "reasoning": "fallback: diversifying away from ineffective "
+                             "spring-constant escalation, switching method for kinking",
+            }
+        n = diagnostics["n_images"]
+        return "set_n_images", {
+            "n": n + 4,
+            "reasoning": "fallback: diversifying away from ineffective "
+                         "spring-constant escalation, adding images instead",
+        }
+
     mode = diagnostics["failure_mode"]
     if mode == "image_collapse" or attempt == 2:
         return "adjust_spring_constant", {
