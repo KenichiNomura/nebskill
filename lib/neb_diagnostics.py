@@ -30,6 +30,7 @@ def diagnose(neb_result: dict) -> dict:
     n_images  = neb_result["n_images"]
     method    = neb_result["method"]
     k         = neb_result["spring_constant"]
+    optimizer = neb_result.get("optimizer", "FIRE2")
     phase     = latest["phase"]
     fmax_fin  = latest["fmax_final"]
     fmax_tgt  = latest["fmax_target"]
@@ -89,6 +90,7 @@ def diagnose(neb_result: dict) -> dict:
         "n_images":         n_images,
         "method":           method,
         "spring_constant":  k,
+        "optimizer":        optimizer,
         "per_image_fmax":   img_fmax,
         "energy_smoothness": energy_smoothness,
         "image_spacing":    image_spacing,
