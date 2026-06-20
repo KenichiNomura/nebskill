@@ -22,7 +22,7 @@ metadata:
   version: "0.2.0"
   potentials: mace, nequip, allegro (extensible via assets/mlip_registry.yaml)
   llm-endpoint: alcf-sophia
-  llm-model: Qwen/Qwen3-32B
+  llm-model: meta-llama/Meta-Llama-3.1-70B-Instruct
 allowed-tools: Bash Read Write
 ---
 
@@ -33,9 +33,9 @@ a reactant and product structure supplied by the user, using the Nudged
 Elastic Band (NEB) method. The same NEB calculation is run once per MLIP in
 a configurable list — by default one representative model from each of the
 MACE, NequIP, and Allegro families — so barrier heights and convergence
-behavior can be compared side by side. An LLM agent (Qwen3-32B via ALCF
-Sophia) monitors convergence and adaptively retries on failure for each
-MLIP run.
+behavior can be compared side by side. An LLM agent (Llama-3.1-70B-Instruct
+via ALCF Sophia) monitors convergence and adaptively retries on failure for
+each MLIP run.
 
 For SLURM-equipped systems, the per-MLIP runs can be submitted as
 independent jobs instead of running sequentially.
@@ -63,7 +63,7 @@ Before launching, ask the user:
 1. **Initial and final structure files** — paths to the two endpoint
    structures.
 2. **Which MLIPs to run** — default is one model per family:
-   `mace-off`, `nequip-oam-l`, `allegro-oam-l`. The full set of available
+   `mace-omat`, `nequip-oam-l`, `allegro-oam-l`. The full set of available
    MLIPs is in [assets/mlip_registry.yaml](assets/mlip_registry.yaml).
 3. **Use all other default parameters, or customize?**
    > - **[1] Use all defaults** — proceeds immediately with the values below
@@ -73,11 +73,11 @@ Default values:
 
 | Parameter | Default |
 |---|---|
-| MLIPs | `mace-off`, `nequip-oam-l`, `allegro-oam-l` |
+| MLIPs | `mace-omat`, `nequip-oam-l`, `allegro-oam-l` |
 | Number of NEB images | auto (`max(9, round(path_length/1.0))`) |
-| Spring constant k | `0.1 eV/Å` |
+| Spring constant k | `0.5 eV/Å` |
 | Final convergence fmax | `0.05 eV/Å` |
-| Max retry attempts (per MLIP) | `3` |
+| Max retry attempts (per MLIP) | `5` |
 | Execution mode | `interactive` (or `slurm` if available) |
 
 If the user chooses **[2] Customize**, ask about each parameter one at a

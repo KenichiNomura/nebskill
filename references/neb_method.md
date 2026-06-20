@@ -11,11 +11,11 @@ images distribute themselves along the MEP.
 
 | Parameter | Description | Our default |
 |---|---|---|
-| `k` | Spring constant (eV/Å) | 0.1 |
+| `k` | Spring constant (eV/Å) | 0.5 |
 | `method` | Tangent estimation method | `improvedtangent` |
 | `climb` | Enable climbing image | False (phase 1), True (phase 2) |
 | `remove_rotation_and_translation` | NEB-TR for non-periodic systems | True |
-| `allow_shared_calculator` | Share calculator between images | False |
+| `allow_shared_calculator` | Share calculator between images | True (sequential NEB; all images use one calculator instance) |
 
 ## Methods
 
@@ -29,9 +29,14 @@ images distribute themselves along the MEP.
 
 ## Interpolation
 
-Always use IDPP (`neb.interpolate('idpp')`) over linear interpolation.
-IDPP minimizes a cost function on interatomic distances, producing fewer
-atom collisions in the initial path for organic molecules.
+`assets/neb_defaults.yaml`'s default is `linear`, not IDPP — linear is
+safer for periodic cells (IDPP's distance-cost minimization can fight the
+minimum-image convention and produce a worse starting path under periodic
+boundary conditions). For isolated/molecular (non-periodic) systems, IDPP
+(`neb.interpolate('idpp')`) is generally preferable: it minimizes a cost
+function on interatomic distances, producing fewer atom collisions in the
+initial path. Set `interpolation: idpp` in the config if your system is
+non-periodic and the linear default isn't converging well.
 
 ## Two-phase CI-NEB protocol
 
@@ -47,8 +52,12 @@ Phase 2 (CI-NEB, `climb=True`):
 
 ## Optimizer choice
 
-Use FIRE for both phases. BFGS and L-BFGS are unsuitable for CI-NEB because
-the NEB force is not a true gradient of any scalar function.
+FIRE2 is the default optimizer for both phases. MDMin is the only other
+option offered to the retry agent (`switch_optimizer`), used when FIRE2
+stalls (e.g. kinking). BFGS and L-BFGS are deliberately excluded: they are
+unsuitable for CI-NEB because the NEB force is not a true gradient of any
+scalar function, and this breaks down further once the climbing image's
+parallel force component is inverted in phase 2.
 
 ## Common failure modes and interventions
 
@@ -56,7 +65,7 @@ the NEB force is not a true gradient of any scalar function.
 |---|---|---|
 | Low inter-image RMSD (< 0.05 Å) | Image collapse | Increase `k` |
 | Highly uneven inter-image RMSD | Image bunching | Increase `n_images` |
-| Large energy second derivative | Kinking | Switch to `string` method |
+| Large energy second derivative | Kinking | Switch optimizer to `MDMin` |
 | High forces at image 0 or N-1 | Endpoint not at minimum | Tighten endpoint relaxation |
 | Steps ≈ cap, fmax slowly decreasing | Almost converged | Increase step cap or reduce `k` |
 

@@ -6,7 +6,7 @@ and compares the result across multiple machine-learned interatomic
 potentials (MLIPs) — by default one model each from the **MACE**, **NequIP**,
 and **Allegro** families.
 
-An LLM agent (Qwen3-32B via ALCF Sophia) monitors NEB convergence and
+An LLM agent (Llama-3.1-70B-Instruct via ALCF Sophia) monitors NEB convergence and
 adaptively retries on failure, independently for each MLIP run.
 
 ---
@@ -50,7 +50,7 @@ python step0-multi/runner.py --endpoints-dir outputs/reactant-product
 ```
 
 This loads the two structures, then for each MLIP in
-`assets/neb_defaults.yaml`'s `mlips:` list (default: `mace-off`,
+`assets/neb_defaults.yaml`'s `mlips:` list (default: `mace-omat`,
 `nequip-oam-l`, `allegro-oam-l`) relaxes the endpoints, runs two-phase NEB
 (standard NEB → CI-NEB), retries adaptively on convergence failure, and
 writes analysis artifacts — then aggregates barrier heights and convergence
@@ -59,7 +59,7 @@ across all MLIPs.
 Override the MLIP list or run mode directly:
 ```bash
 python step0-multi/runner.py --endpoints-dir outputs/reactant-product \
-    --mlips mace-off nequip-oam-l allegro-oam-l \
+    --mlips mace-omat nequip-oam-l allegro-oam-l \
     --mode interactive   # or: slurm
 ```
 
@@ -72,8 +72,8 @@ is auto-detected from the input structures.
 ## Available MLIPs
 
 The full registry of supported MLIPs — including MACE, NequIP, Allegro, and
-several others (CHGNet, M3GNet, SevenNet, PET-MAD, eSEN/fairchem, TACE, Orb,
-MatterSim) — is in
+several others (CHGNet, M3GNet, SevenNet, PET-MAD, eSEN/fairchem, TACE) — is
+in
 [assets/mlip_registry.yaml](assets/mlip_registry.yaml). Any registry key can
 be passed via `--mlips`; entries needing a local checkpoint note the
 expected file path.
@@ -88,18 +88,18 @@ Key sections:
 
 ```yaml
 relaxation:
-  fmax: 0.01           # eV/Å, endpoint relaxation convergence
+  fmax: 0.05           # eV/Å, endpoint relaxation convergence
 
 neb:
   n_images: auto       # max(9, round(path_length / 1.0))
-  spring_constant: 0.1 # eV/Å
+  spring_constant: 0.5 # eV/Å
   phase2_fmax: 0.05    # eV/Å — CI-NEB convergence target
 
 retry:
-  max_attempts: 3      # adaptive retries per MLIP before giving up
+  max_attempts: 5      # adaptive retries per MLIP before giving up
 
 mlips:
-  - mace-off
+  - mace-omat
   - nequip-oam-l
   - allegro-oam-l
 

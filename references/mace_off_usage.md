@@ -6,7 +6,10 @@ MACE-OFF23 is a pre-trained transferable machine learning force field for
 organic molecules, based on the MACE equivariant architecture. It covers
 elements H, C, N, O, F, S, Cl. MACE-MP(A) is the companion foundation model
 trained on inorganic/materials data (broader element coverage, see
-`assets/mlip_registry.yaml`'s `mace-mp`/`mace-omat` entries).
+`assets/mlip_registry.yaml`'s `mace-mp`/`mace-omat` entries). MACE-OMOL
+(`mace-omol` entry) is trained on the OMol25 dataset of isolated/non-periodic
+molecules and complexes — treat results on periodic/bulk systems as
+exploratory, since it wasn't trained for that regime.
 
 License: Academic Software License (ASL) — free for academic use only.
 
