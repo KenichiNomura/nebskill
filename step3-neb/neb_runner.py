@@ -13,8 +13,17 @@ import yaml
 from ase import Atoms
 from ase.io import write as ase_write
 from ase.mep import NEB
-from ase.optimize import FIRE
+from ase.optimize import FIRE2, MDMin
 from lib.calculator import make_calculator
+
+# BFGS/LBFGS deliberately excluded: they assume the optimized force is a
+# true gradient of one scalar function, which breaks down for CI-NEB phase 2
+# (climbing image inverts the parallel force component). FIRE2 is the
+# default; MDMin is the fallback when FIRE2 stalls (e.g. kinking).
+OPTIMIZERS = {
+    "FIRE2": FIRE2,
+    "MDMin": MDMin,
+}
 
 
 def load_config(path: str) -> dict:
@@ -95,10 +104,12 @@ def write_trajectory(images: list, traj_path: Path, append: bool = False) -> Non
 
 
 def run_phase(neb: NEB, images: list, fmax: float, max_steps: int,
-              phase: int, traj_path: Path, append_traj: bool) -> dict:
-    """Run one FIRE optimization phase. Returns result dict."""
+              phase: int, traj_path: Path, append_traj: bool,
+              optimizer_name: str = "FIRE2") -> dict:
+    """Run one optimization phase with the chosen optimizer. Returns result dict."""
     t0 = time.monotonic()
-    opt = FIRE(neb, logfile=None)
+    optimizer_cls = OPTIMIZERS[optimizer_name]
+    opt = optimizer_cls(neb, logfile=None)
     converged = opt.run(fmax=fmax, steps=max_steps)
     steps_taken = opt.get_number_of_steps()
     elapsed = time.monotonic() - t0
@@ -114,10 +125,11 @@ def run_phase(neb: NEB, images: list, fmax: float, max_steps: int,
 
     print(f"  Phase {phase}: {'converged' if converged else 'NOT converged'} — "
           f"NEB fmax={fmax_final:.4f} eV/Å, steps={steps_taken}/{max_steps}, "
-          f"time={elapsed:.1f}s")
+          f"optimizer={optimizer_name}, time={elapsed:.1f}s")
 
     return {
         "phase":            phase,
+        "optimizer":        optimizer_name,
         "converged":        bool(converged),
         "steps_taken":      steps_taken,
         "max_steps":        max_steps,
@@ -143,6 +155,8 @@ def main():
                         help="Override NEB method (agent retry use)")
     parser.add_argument("--spring-constant", type=float, default=None,
                         help="Override spring constant k (agent retry use)")
+    parser.add_argument("--optimizer", default=None, choices=list(OPTIMIZERS),
+                        help="Override NEB optimizer (agent retry use)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -153,6 +167,8 @@ def main():
         neb_cfg["method"] = args.method
     if args.spring_constant:
         neb_cfg["spring_constant"] = args.spring_constant
+    if args.optimizer:
+        neb_cfg["optimizer"] = args.optimizer
 
     out_dir = Path(args.output_dir)
     relaxed_path = out_dir / "relaxed_endpoints.json"
@@ -175,16 +191,18 @@ def main():
     mlip_name = args.mlip or "mace-off"
     calc = make_calculator(mlip_name, registry)
 
-    n_images = args.n_images if args.n_images else \
+    n_images  = args.n_images if args.n_images else \
                compute_n_images(reactant, product, cfg, edge_flag)
-    method   = neb_cfg["method"]
-    k        = float(neb_cfg["spring_constant"])
+    method    = neb_cfg["method"]
+    k         = float(neb_cfg["spring_constant"])
+    optimizer_name = neb_cfg.get("optimizer", "FIRE2")
 
     # periodic systems: disable remove_rotation_and_translation
     rrt = False if is_periodic else bool(neb_cfg["remove_rotation_translation"])
     print(f"NEB for {relaxed.get('formula', '?')} [{mlip_name}]"
           f"{' (periodic)' if is_periodic else ''}")
-    print(f"  n_images={n_images}, method={method}, k={k} eV/Å, rrt={rrt}")
+    print(f"  n_images={n_images}, method={method}, k={k} eV/Å, "
+          f"optimizer={optimizer_name}, rrt={rrt}")
 
     images = build_images(reactant, product, n_images, calc)
 
@@ -207,10 +225,11 @@ def main():
     result1 = run_phase(neb, images,
                         fmax=float(neb_cfg["phase1_fmax"]),
                         max_steps=int(neb_cfg["phase1_max_steps"]),
-                        phase=1, traj_path=traj_path, append_traj=False)
+                        phase=1, traj_path=traj_path, append_traj=False,
+                        optimizer_name=optimizer_name)
 
     if not result1["converged"]:
-        _write_neb_result(out_dir, result1, n_images, method, k,
+        _write_neb_result(out_dir, result1, n_images, method, k, optimizer_name,
                           relaxed["dft_forward_barrier_ev"])
         print("Phase 1 did not converge — triggering retry (step4-monitor)")
         sys.exit(4)  # exit code 4 = NEB convergence failure
@@ -221,9 +240,10 @@ def main():
     result2 = run_phase(neb, images,
                         fmax=float(neb_cfg["phase2_fmax"]),
                         max_steps=int(neb_cfg["phase2_max_steps"]),
-                        phase=2, traj_path=traj_path, append_traj=True)
+                        phase=2, traj_path=traj_path, append_traj=True,
+                        optimizer_name=optimizer_name)
 
-    _write_neb_result(out_dir, result2, n_images, method, k,
+    _write_neb_result(out_dir, result2, n_images, method, k, optimizer_name,
                       relaxed["dft_forward_barrier_ev"],
                       phase1_result=result1)
 
@@ -236,12 +256,13 @@ def main():
 
 
 def _write_neb_result(out_dir: Path, result: dict, n_images: int,
-                      method: str, k: float, dft_barrier: float,
+                      method: str, k: float, optimizer_name: str, dft_barrier: float,
                       phase1_result: dict | None = None) -> None:
     payload = {
         "n_images":         n_images,
         "method":           method,
         "spring_constant":  k,
+        "optimizer":        optimizer_name,
         "dft_barrier_ev":   dft_barrier,
         "phase1":           phase1_result,
         "latest":           result,

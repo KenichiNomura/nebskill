@@ -1,4 +1,7 @@
-"""Relax reactant and product endpoints with MACE-OFF: FIRE then BFGS."""
+"""Relax reactant and product endpoints with the chosen MLIP: FIRE then BFGS.
+
+Default MLIP is mace-off if --mlip is omitted; any registry entry works.
+"""
 import argparse
 import json
 import sys
@@ -80,7 +83,7 @@ def relax_structure(
         "atomic_numbers":  atoms.get_atomic_numbers().tolist(),
         "pbc":             bool(atoms.pbc.any()),
         "cell":            atoms.get_cell().tolist(),
-        "energy_mace_ev":  energy,
+        "energy_ev":       energy,
         "fmax_ev_per_ang": fmax_final,
         "converged":       True,
         "optimizer_used":  optimizer_used,
@@ -96,10 +99,14 @@ def main():
     parser.add_argument("--mlip",     default=None,
                         help="MLIP name from registry (default: mace-off)")
     parser.add_argument("--registry", default="assets/mlip_registry.yaml")
+    parser.add_argument("--fmax", type=float, default=None,
+                        help="Override endpoint relaxation fmax (agent retry use)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     relax_cfg = cfg["relaxation"]
+    if args.fmax:
+        relax_cfg["fmax"] = args.fmax
 
     out_dir = Path(args.output_dir)
     endpoints_path = out_dir / "endpoints.json"
@@ -164,8 +171,8 @@ def main():
     out_path.write_text(json.dumps(output, indent=2))
 
     print(f"\nRelaxed energies ({mlip_name}):")
-    print(f"  Reactant: {results['reactant']['energy_mace_ev']:.4f} eV")
-    print(f"  Product:  {results['product']['energy_mace_ev']:.4f} eV")
+    print(f"  Reactant: {results['reactant']['energy_ev']:.4f} eV")
+    print(f"  Product:  {results['product']['energy_ev']:.4f} eV")
     dft_ref = endpoints.get("dft_forward_barrier_ev")
     if dft_ref is not None:
         print(f"  DFT forward barrier reference: {dft_ref:.3f} eV")

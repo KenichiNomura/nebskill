@@ -13,6 +13,9 @@ python step2-relax/relax_endpoints.py --output-dir outputs/{run_id}/{mlip} \
     --registry assets/mlip_registry.yaml
 ```
 
+`--fmax` overrides the config's `relaxation.fmax` (used by the adaptive
+retry loop's `tighten_endpoint_relaxation` tool in step 4).
+
 Reads `outputs/{run_id}/endpoints.json` (one level up from `--output-dir`
 is not assumed — `step0-multi/runner.py` copies `endpoints.json` into each
 per-MLIP output directory before calling this script).
@@ -24,7 +27,7 @@ but with relaxed positions and MLIP energies.
 For each endpoint (reactant, then product):
 
 1. **FIRE optimizer**, max `optimizer_1_max_steps` steps, target
-   `fmax = 0.01 eV/Å`
+   `fmax = 0.05 eV/Å` (default; configurable via `relaxation.fmax`)
 2. If FIRE does not converge:
    - Switch to **BFGS optimizer**, same step cap and `fmax`
 3. If BFGS also fails to converge:
@@ -54,7 +57,7 @@ See [references/mace_off_usage.md](../references/mace_off_usage.md) and
   "reactant": {
     "positions": [[...], ...],
     "atomic_numbers": [...],
-    "energy_mace_ev": -123.45,
+    "energy_ev": -123.45,
     "fmax_ev_per_ang": 0.008,
     "converged": true,
     "optimizer_used": "FIRE"

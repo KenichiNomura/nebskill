@@ -1,7 +1,7 @@
 """pip-install all MLIP packages into the current Python environment.
 
-Packages with hard-pinned torch requirements (TACE, EquFlash) are flagged
-but skipped by default to avoid breaking the base environment.
+Packages with hard-pinned torch requirements (TACE) are flagged but skipped
+by default to avoid breaking the base environment.
 """
 import subprocess
 import sys
@@ -14,16 +14,11 @@ PACKAGES = [
     ("sevenn",               "SevenNet (7net-0, 7net-mf-ompa)", None),
     ("upet==0.1.0",          "PET-OAM-XL",                      None),
     ("fairchem-core",        "eSEN-30M-OAM / EquiformerV3",     None),
-    ("orb-models",           "Orb-v2",                          None),
-    ("mattersim",            "MatterSim-v1.0.0-5M",             None),
     ("nequip",               "NequIP / Allegro (OAM)",          None),
     # --- packages with conflicting torch pins — skipped by default ---
     ("tace>=0.2.0",
      "TACE-OAM-L",
      "requires torch-geometric; pin may conflict with base torch"),
-    ("flashTP_e3nn==0.1.0",
-     "EquFlash",
-     "requires torch==2.8.0+cu126 and CUDA 12.6 strictly"),
 ]
 
 

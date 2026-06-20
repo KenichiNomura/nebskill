@@ -24,9 +24,11 @@ import numpy as np
 import yaml
 from ase.io import read as ase_read
 from ase.mep import NEB
-from ase.optimize import FIRE
+from ase.optimize import FIRE2, MDMin
 
 from lib.calculator import make_calculator
+
+OPTIMIZERS = {"FIRE2": FIRE2, "MDMin": MDMin}
 
 
 def load_config(path):
@@ -49,9 +51,10 @@ def write_trajectory(images, traj_path, append=False):
         mode = "a"
 
 
-def run_phase(neb, images, fmax, max_steps, phase, traj_path, append_traj):
+def run_phase(neb, images, fmax, max_steps, phase, traj_path, append_traj,
+              optimizer_name="FIRE2"):
     t0 = time.monotonic()
-    opt = FIRE(neb, logfile=None)
+    opt = OPTIMIZERS[optimizer_name](neb, logfile=None)
     converged = opt.run(fmax=fmax, steps=max_steps)
     steps_taken = opt.get_number_of_steps()
     elapsed = time.monotonic() - t0
@@ -82,6 +85,7 @@ def main():
     parser.add_argument("--registry",   default="assets/mlip_registry.yaml")
     parser.add_argument("--spring-constant", type=float, default=None)
     parser.add_argument("--method",     default=None)
+    parser.add_argument("--optimizer",  default=None, choices=list(OPTIMIZERS))
     parser.add_argument("--skip-cineb", action="store_true",
                         help="Run Phase 1 only; skip CI-NEB Phase 2.")
     parser.add_argument("--phase1-fmax", type=float, default=None,
@@ -99,6 +103,7 @@ def main():
 
     k      = args.spring_constant or float(neb_cfg["spring_constant"])
     method = args.method or neb_cfg["method"]
+    optimizer_name = args.optimizer or neb_cfg.get("optimizer", "FIRE2")
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -130,7 +135,7 @@ def main():
     for img in images:
         img.calc = calc
 
-    print(f"NEB: method={method}, k={k} eV/Å, rrt={rrt}")
+    print(f"NEB: method={method}, k={k} eV/Å, optimizer={optimizer_name}, rrt={rrt}")
 
     neb = NEB(images, k=k, method=method, climb=False,
               allow_shared_calculator=True,
@@ -145,12 +150,14 @@ def main():
         neb, images,
         fmax=p1_fmax,
         max_steps=int(neb_cfg["phase1_max_steps"]),
-        phase=1, traj_path=traj_path, append_traj=False)
+        phase=1, traj_path=traj_path, append_traj=False,
+        optimizer_name=optimizer_name)
 
     phase1_record = {"converged": bool(conv1), "steps_taken": int(steps1),
                      "fmax_final": float(fmax1), "energies": energies1,
                      "forces_per_image": imgf1}
     result = {"n_images": n_images, "method": method, "spring_constant": k,
+              "optimizer": optimizer_name,
               "dft_barrier_ev": None, "phase1": phase1_record,
               "latest": {"phase": 1, **phase1_record}}
     (out_dir / "neb_result.json").write_text(json.dumps(result, indent=2))
@@ -175,7 +182,8 @@ def main():
         neb, images,
         fmax=float(neb_cfg["phase2_fmax"]),
         max_steps=int(neb_cfg["phase2_max_steps"]),
-        phase=2, traj_path=traj_path, append_traj=True)
+        phase=2, traj_path=traj_path, append_traj=True,
+        optimizer_name=optimizer_name)
 
     result["latest"] = {"phase": 2, "converged": bool(conv2), "steps_taken": int(steps2),
                         "fmax_final": float(fmax2), "energies": energies2,

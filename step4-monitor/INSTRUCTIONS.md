@@ -45,8 +45,11 @@ set_n_images(n: int)
 adjust_spring_constant(k: float)
   → use when inter_image_rmsd shows collapse (increase k) or over-tension
 
-switch_method(method: "string" | "improvedtangent" | "spline")
-  → use when energy_smoothness shows kinking or energy discontinuities
+switch_optimizer(optimizer: "FIRE2" | "MDMin")
+  → FIRE2 is the default; switch to MDMin when energy_smoothness shows
+    kinking/discontinuities (FIRE2's adaptive timestep is more sensitive to
+    noisy forces than MDMin's damped-MD step). BFGS/LBFGS are not offered —
+    see references/neb_method.md for why they're unsuitable for CI-NEB.
 
 tighten_endpoint_relaxation(fmax: float)
   → use when forces_per_image is high at endpoint images, suggesting
@@ -87,7 +90,7 @@ Written to `failure_report.json` in `--output-dir`:
   "reason": "retry_exhausted",
   "n_attempts": 3,
   "interventions": [
-    {"attempt": 1, "tool": "switch_method", "args": {"method": "string", "reasoning": "..."}},
+    {"attempt": 1, "tool": "switch_optimizer", "args": {"optimizer": "MDMin", "reasoning": "..."}},
     {"attempt": 2, "tool": "set_n_images", "args": {"n": 13, "reasoning": "..."}},
     {"attempt": 3, "tool": "adjust_spring_constant", "args": {"k": 0.2, "reasoning": "..."}}
   ],

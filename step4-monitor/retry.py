@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -69,22 +70,29 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "switch_method",
+            "name": "switch_optimizer",
             "description": (
-                "Switch the NEB band method. Use 'string' when kinking or energy "
-                "discontinuities are detected (high second-derivative score)."
+                "Switch the local optimizer driving the NEB band relaxation. "
+                "FIRE2 is the default and usually fastest. Switch to MDMin "
+                "when FIRE2 stalls, especially when kinking or energy "
+                "discontinuities are detected (high second-derivative score) "
+                "— MDMin's damped-MD step is more tolerant of noisy/"
+                "discontinuous forces than FIRE2. (BFGS/LBFGS are not "
+                "offered: they assume the optimized force is a true gradient "
+                "of one scalar function, which breaks down for CI-NEB's "
+                "climbing image.)"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "method": {
+                    "optimizer": {
                         "type": "string",
-                        "enum": ["string", "improvedtangent", "spline"],
-                        "description": "NEB method to use"
+                        "enum": ["FIRE2", "MDMin"],
+                        "description": "Optimizer to use for NEB band relaxation"
                     },
                     "reasoning": {"type": "string"}
                 },
-                "required": ["method", "reasoning"],
+                "required": ["optimizer", "reasoning"],
             },
         },
     },
@@ -126,10 +134,11 @@ Be concise and precise in your reasoning."""
 
 
 def call_llm_for_intervention(diagnostics: dict, cfg: dict,
-                              allowed_tools: list[str] | None = None) -> tuple[str, dict]:
+                              allowed_tools: list[str] | None = None) -> tuple[str, dict, dict]:
     """
     Ask the LLM agent to choose one intervention.
-    Returns (tool_name, tool_args).
+    Returns (tool_name, tool_args, call_meta) where call_meta records the
+    ALCF round-trip wall time and token usage for this call.
 
     If `allowed_tools` is given, the tool schema offered to the LLM is
     restricted to those names — used to force diversification away from a
@@ -162,6 +171,7 @@ def call_llm_for_intervention(diagnostics: dict, cfg: dict,
         f"{diversify_note}"
     )
 
+    t0 = time.monotonic()
     response = client.chat.completions.create(
         model=cfg["alcf"]["model"],
         messages=[
@@ -171,11 +181,21 @@ def call_llm_for_intervention(diagnostics: dict, cfg: dict,
         tools=tools,
         tool_choice="required",
     )
+    wall_time_s = time.monotonic() - t0
+
+    usage = getattr(response, "usage", None)
+    call_meta = {
+        "wall_time_s":       round(wall_time_s, 3),
+        "prompt_tokens":     getattr(usage, "prompt_tokens", None),
+        "completion_tokens": getattr(usage, "completion_tokens", None),
+        "total_tokens":      getattr(usage, "total_tokens", None),
+        "failed":            False,
+    }
 
     tool_call = response.choices[0].message.tool_calls[0]
     fn_name = tool_call.function.name
     fn_args = json.loads(tool_call.function.arguments)
-    return fn_name, fn_args
+    return fn_name, fn_args, call_meta
 
 
 # --------------------------------------------------------------------------- #
@@ -196,8 +216,8 @@ def apply_intervention(fn_name: str, fn_args: dict,
     elif fn_name == "adjust_spring_constant":
         neb_args["spring_constant"] = fn_args["k"]
 
-    elif fn_name == "switch_method":
-        neb_args["method"] = fn_args["method"]
+    elif fn_name == "switch_optimizer":
+        neb_args["optimizer"] = fn_args["optimizer"]
 
     elif fn_name == "tighten_endpoint_relaxation":
         relax_args["fmax"] = fn_args["fmax"]
@@ -210,12 +230,15 @@ def apply_intervention(fn_name: str, fn_args: dict,
 # Subprocess helpers
 # --------------------------------------------------------------------------- #
 
-def run_relax(out_dir: Path, config: str, mlip: str, registry: str) -> int:
+def run_relax(out_dir: Path, config: str, mlip: str, registry: str,
+              relax_args: dict | None = None) -> int:
     cmd = [sys.executable, "step2-relax/relax_endpoints.py",
            "--output-dir", str(out_dir),
            "--config", config,
            "--mlip", mlip,
            "--registry", registry]
+    if relax_args and "fmax" in relax_args:
+        cmd += ["--fmax", str(relax_args["fmax"])]
     result = subprocess.run(cmd, cwd=ROOT)
     return result.returncode
 
@@ -233,6 +256,8 @@ def run_neb(out_dir: Path, config: str, mlip: str, registry: str,
         cmd += ["--method", neb_args["method"]]
     if "spring_constant" in neb_args:
         cmd += ["--spring-constant", str(neb_args["spring_constant"])]
+    if "optimizer" in neb_args:
+        cmd += ["--optimizer", neb_args["optimizer"]]
     result = subprocess.run(cmd, cwd=ROOT)
     return result.returncode
 
@@ -263,7 +288,7 @@ def main():
     fmax_trace  = []   # diagnostics fmax_final seen at the start of each attempt
 
     DIVERSIFY_AWAY_FROM = "adjust_spring_constant"
-    DIVERSIFY_TARGETS   = ["switch_method", "set_n_images"]
+    DIVERSIFY_TARGETS   = ["switch_optimizer", "set_n_images"]
 
     for attempt in range(1, max_attempts + 1):
         print(f"\n--- Retry attempt {attempt}/{max_attempts} ---")
@@ -299,12 +324,25 @@ def main():
 
         print(f"  Calling LLM agent for intervention...")
 
+        call_t0 = time.monotonic()
         try:
-            fn_name, fn_args = call_llm_for_intervention(diagnostics, cfg, allowed_tools)
+            fn_name, fn_args, call_meta = call_llm_for_intervention(diagnostics, cfg, allowed_tools)
         except Exception as e:
             print(f"  LLM call failed: {e}", file=sys.stderr)
-            fn_name, fn_args = _fallback_intervention(diagnostics, attempt, force_diverse)
+            fn_name, fn_args = _fallback_intervention(diagnostics, attempt, cfg, force_diverse)
+            call_meta = {
+                "wall_time_s":       round(time.monotonic() - call_t0, 3),
+                "prompt_tokens":     None,
+                "completion_tokens": None,
+                "total_tokens":      None,
+                "failed":            True,
+            }
             print(f"  Using fallback intervention: {fn_name}")
+        else:
+            print(f"  LLM call: {call_meta['wall_time_s']}s, "
+                  f"{call_meta['total_tokens']} tokens "
+                  f"({call_meta['prompt_tokens']} prompt + "
+                  f"{call_meta['completion_tokens']} completion)")
 
         tool_trace.append(fn_name)
         print(f"  Intervention: {fn_name}({fn_args})")
@@ -315,6 +353,7 @@ def main():
             "tool":      fn_name,
             "args":      fn_args,
             "reasoning": fn_args.get("reasoning", ""),
+            "llm_call":  call_meta,
             "diagnostics_snapshot": {
                 "failure_mode":  diagnostics["failure_mode"],
                 "fmax_final":    diagnostics["fmax_final"],
@@ -328,8 +367,8 @@ def main():
         )
 
         if needs_rerelax:
-            print("  Re-relaxing endpoints with tighter fmax...")
-            rc = run_relax(out_dir, args.config, args.mlip, args.registry)
+            print(f"  Re-relaxing endpoints with tighter fmax={relax_args['fmax']}...")
+            rc = run_relax(out_dir, args.config, args.mlip, args.registry, relax_args)
             if rc != 0:
                 print("  Endpoint re-relaxation failed — aborting retry", file=sys.stderr)
                 break
@@ -355,15 +394,16 @@ def main():
     sys.exit(5)
 
 
-def _fallback_intervention(diagnostics: dict, attempt: int,
+def _fallback_intervention(diagnostics: dict, attempt: int, cfg: dict,
                            force_diverse: bool = False) -> tuple[str, dict]:
     """Fixed escalation used when LLM call fails."""
+    fallback_optimizer = cfg["retry"]["fallback_optimizer"]
     if force_diverse:
         if diagnostics["failure_mode"] == "kinking":
-            return "switch_method", {
-                "method": "string",
+            return "switch_optimizer", {
+                "optimizer": fallback_optimizer,
                 "reasoning": "fallback: diversifying away from ineffective "
-                             "spring-constant escalation, switching method for kinking",
+                             "spring-constant escalation, switching optimizer for kinking",
             }
         n = diagnostics["n_images"]
         return "set_n_images", {
@@ -379,9 +419,9 @@ def _fallback_intervention(diagnostics: dict, attempt: int,
             "reasoning": "fallback: doubling spring constant for image collapse",
         }
     elif mode == "kinking" or attempt == 3:
-        return "switch_method", {
-            "method": "string",
-            "reasoning": "fallback: switching to string method for kinking",
+        return "switch_optimizer", {
+            "optimizer": fallback_optimizer,
+            "reasoning": f"fallback: switching to {fallback_optimizer} optimizer for kinking",
         }
     else:
         n = diagnostics["n_images"]

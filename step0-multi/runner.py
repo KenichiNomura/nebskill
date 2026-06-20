@@ -38,7 +38,7 @@ def _run(script: str, extra: list, allow_exit4: bool = False) -> int:
     return rc
 
 
-def _submit_slurm(mlip: str, out_dir: Path, cfg: dict) -> str:
+def _submit_slurm(mlip: str, out_dir: Path, cfg: dict, registry_path: str) -> str:
     slurm = cfg.get("execution", {})
     venv_python = sys.executable
     script = f"""#!/bin/bash
@@ -50,8 +50,14 @@ def _submit_slurm(mlip: str, out_dir: Path, cfg: dict) -> str:
 #SBATCH --account={slurm.get('slurm_account', '')}
 #SBATCH --output={out_dir}/slurm_%j.out
 cd {ROOT}
-{venv_python} step2-relax/relax_endpoints.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml || exit $?
-{venv_python} step4-monitor/retry.py         --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml || exit $?
+{venv_python} step2-relax/relax_endpoints.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path} || exit $?
+{venv_python} step3-neb/neb_runner.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path}
+rc=$?
+if [ $rc -eq 4 ]; then
+    {venv_python} step4-monitor/retry.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path} || exit $?
+elif [ $rc -ne 0 ]; then
+    exit $rc
+fi
 {venv_python} step5-analyze/analyze.py --output-dir {out_dir} --config assets/neb_defaults.yaml
 {venv_python} step5-analyze/plot.py    --output-dir {out_dir}
 {venv_python} step5-analyze/writer.py  --output-dir {out_dir}
@@ -115,7 +121,7 @@ def main():
         print(f"{'='*60}")
 
         if mode == "slurm":
-            slurm_jobs[mlip] = _submit_slurm(mlip, out_dir, cfg)
+            slurm_jobs[mlip] = _submit_slurm(mlip, out_dir, cfg, args.registry)
             continue
 
         # ── interactive sequential ────────────────────────────────────────────
