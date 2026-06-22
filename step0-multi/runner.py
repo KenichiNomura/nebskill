@@ -38,23 +38,26 @@ def _run(script: str, extra: list, allow_exit4: bool = False) -> int:
     return rc
 
 
-def _submit_slurm(mlip: str, out_dir: Path, cfg: dict, registry_path: str) -> str:
+def _submit_slurm(mlip: str, out_dir: Path, cfg: dict, registry_path: str,
+                  n_gpus: int = 1) -> str:
     slurm = cfg.get("execution", {})
     venv_python = sys.executable
+    gpus_per_node = max(int(slurm.get('slurm_gpus_per_node', 4)), n_gpus)
+    n_gpus_flag = f" --n-gpus {n_gpus}" if n_gpus != 1 else ""
     script = f"""#!/bin/bash
 #SBATCH --job-name=neb_{mlip}
 #SBATCH --partition={slurm.get('slurm_partition', 'gpu')}
 #SBATCH --nodes={slurm.get('slurm_nodes', 1)}
-#SBATCH --gpus-per-node={slurm.get('slurm_gpus_per_node', 1)}
+#SBATCH --gpus-per-node={gpus_per_node}
 #SBATCH --time={slurm.get('slurm_time', '02:00:00')}
 #SBATCH --account={slurm.get('slurm_account', '')}
 #SBATCH --output={out_dir}/slurm_%j.out
 cd {ROOT}
 {venv_python} step2-relax/relax_endpoints.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path} || exit $?
-{venv_python} step3-neb/neb_runner.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path}
+{venv_python} step3-neb/neb_runner.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path}{n_gpus_flag}
 rc=$?
 if [ $rc -eq 4 ]; then
-    {venv_python} step4-monitor/retry.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path} || exit $?
+    {venv_python} step4-monitor/retry.py --mlip {mlip} --output-dir {out_dir} --config assets/neb_defaults.yaml --registry {registry_path}{n_gpus_flag} || exit $?
 elif [ $rc -ne 0 ]; then
     exit $rc
 fi
@@ -82,6 +85,9 @@ def main():
                         help="Override MLIP list from config")
     parser.add_argument("--mode", choices=["interactive", "slurm"], default=None,
                         help="Execution mode (asked at runtime if omitted)")
+    parser.add_argument("--n-gpus", type=int, default=None,
+                        help="Spread each MLIP's NEB images across N GPUs "
+                             "(passed through to step3-neb/neb_runner.py)")
     args = parser.parse_args()
 
     with open(args.config)   as f: cfg      = yaml.safe_load(f)
@@ -103,8 +109,9 @@ def main():
         sys.exit(1)
 
     mode = args.mode or cfg.get("execution", {}).get("mode") or _ask_mode()
+    n_gpus = args.n_gpus if args.n_gpus is not None else int(cfg["neb"].get("n_gpus", 4))
     print(f"\nCampaign: {endpoints['formula']} "
-          f"({endpoints_dir.name}), {len(mlip_list)} MLIPs, mode={mode}")
+          f"({endpoints_dir.name}), {len(mlip_list)} MLIPs, mode={mode}, n_gpus={n_gpus}")
 
     slurm_jobs: dict[str, str] = {}
 
@@ -121,19 +128,20 @@ def main():
         print(f"{'='*60}")
 
         if mode == "slurm":
-            slurm_jobs[mlip] = _submit_slurm(mlip, out_dir, cfg, args.registry)
+            slurm_jobs[mlip] = _submit_slurm(mlip, out_dir, cfg, args.registry, n_gpus)
             continue
 
         # ── interactive sequential ────────────────────────────────────────────
         mlip_args    = ["--mlip", mlip, "--output-dir", str(out_dir),
                         "--config", args.config, "--registry", args.registry]
+        neb_args     = mlip_args + (["--n-gpus", str(n_gpus)] if n_gpus != 1 else [])
         analyze_args = ["--output-dir", str(out_dir), "--config", args.config]
         out_dir_args = ["--output-dir", str(out_dir)]
         try:
             _run("step2-relax/relax_endpoints.py", mlip_args)
-            rc = _run("step3-neb/neb_runner.py",   mlip_args, allow_exit4=True)
+            rc = _run("step3-neb/neb_runner.py",   neb_args, allow_exit4=True)
             if rc == 4:
-                _run("step4-monitor/retry.py",     mlip_args)
+                _run("step4-monitor/retry.py",     neb_args)
             _run("step5-analyze/analyze.py", analyze_args)
             _run("step5-analyze/plot.py",    out_dir_args)
             _run("step5-analyze/writer.py",  out_dir_args)

@@ -19,6 +19,29 @@ phase). Exits with code 4 if either phase fails to converge, signaling
 `--n-images`, `--method`, `--spring-constant`, `--optimizer` override the
 config values (used by the adaptive retry loop in step 4).
 
+## Multi-GPU NEB (`--n-gpus`)
+
+`--n-gpus N` (default 4, from `neb.n_gpus` in the config — always use all
+A100 GPUs on the node for one NEB job) spreads one NEB run's images across N
+GPUs on a single node instead of evaluating them sequentially on one device.
+Each image gets its own calculator instance pinned to `cuda:{i % N}`, and
+the NEB object is built with `parallel=True, allow_shared_calculator=False`.
+Since no MPI is configured on this system, this uses ASE's threaded
+fallback (`ase.mep.neb.NEB`, `world.size == 1` branch): one Python thread
+per image, each calling its own calculator concurrently — real multi-GPU
+parallelism within a single process, no `srun`/`mpirun` wrapping needed.
+
+Hard-capped at 4 (this system's GPUs/node) and requires CUDA; the script
+exits with a clear error before doing any work if the request can't be
+satisfied. `n_gpus=1` is byte-for-byte the original single-shared-calculator
+serial path (still available by passing `--n-gpus 1` or setting `neb.n_gpus:
+1` in the config).
+
+Caveat: each GPU holds one full calculator (model weights) per image
+scheduled to it, so very large models with many images use more VRAM in
+aggregate than the single-shared-calculator path — test with the default
+`n_images_min: 9` before scaling up.
+
 ## n_images calculation
 
 Unless overridden by the user or agent:

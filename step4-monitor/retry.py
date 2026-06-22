@@ -258,6 +258,8 @@ def run_neb(out_dir: Path, config: str, mlip: str, registry: str,
         cmd += ["--spring-constant", str(neb_args["spring_constant"])]
     if "optimizer" in neb_args:
         cmd += ["--optimizer", neb_args["optimizer"]]
+    if "n_gpus" in neb_args:
+        cmd += ["--n-gpus", str(neb_args["n_gpus"])]
     result = subprocess.run(cmd, cwd=ROOT)
     return result.returncode
 
@@ -273,6 +275,8 @@ def main():
     parser.add_argument("--mlip",        required=True,
                         help="MLIP name from registry")
     parser.add_argument("--registry",    default="assets/mlip_registry.yaml")
+    parser.add_argument("--n-gpus", type=int, default=None,
+                        help="Carry through the parallel NEB GPU count across retries")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -281,7 +285,8 @@ def main():
     max_attempts = int(cfg["retry"]["max_attempts"])
     out_dir = Path(args.output_dir)
 
-    neb_args    = {}
+    n_gpus = args.n_gpus if args.n_gpus is not None else int(cfg["neb"].get("n_gpus", 4))
+    neb_args    = {"n_gpus": n_gpus} if n_gpus != 1 else {}
     relax_args  = {}
     retry_log   = []
     tool_trace  = []   # tool chosen at each attempt so far

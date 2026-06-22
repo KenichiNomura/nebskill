@@ -1,6 +1,6 @@
 """Relax reactant and product endpoints with the chosen MLIP: FIRE then BFGS.
 
-Default MLIP is mace-off if --mlip is omitted; any registry entry works.
+Default MLIP is mace-omat if --mlip is omitted; any registry entry works.
 """
 import argparse
 import json
@@ -97,7 +97,7 @@ def main():
     parser.add_argument("--config",   default="assets/neb_defaults.yaml")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--mlip",     default=None,
-                        help="MLIP name from registry (default: mace-off)")
+                        help="MLIP name from registry (default: mace-omat)")
     parser.add_argument("--registry", default="assets/mlip_registry.yaml")
     parser.add_argument("--fmax", type=float, default=None,
                         help="Override endpoint relaxation fmax (agent retry use)")
@@ -119,7 +119,7 @@ def main():
 
     with open(args.registry) as rf:
         registry = yaml.safe_load(rf)
-    mlip_name = args.mlip or "mace-off"
+    mlip_name = args.mlip or "mace-omat"
     print(f"Relaxing endpoints ({endpoints['formula']}) with {mlip_name}")
 
     calc = make_calculator(mlip_name, registry)

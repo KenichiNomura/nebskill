@@ -8,12 +8,12 @@ import sys
 
 # (pip_spec, description, conflict_note or None)
 PACKAGES = [
-    ("mace-torch",           "MACE-MP / MACE-OFF",              None),
+    ("mace-torch",           "MACE-MP / MACE-OMAT / MACE-OMOL", None),
     ("chgnet",               "CHGNet",                           None),
     ("matgl",                "M3GNet via MatGL",                 None),
     ("sevenn",               "SevenNet (7net-0, 7net-mf-ompa)", None),
     ("upet==0.1.0",          "PET-OAM-XL",                      None),
-    ("fairchem-core",        "eSEN-30M-OAM / EquiformerV3",     None),
+    ("fairchem-core",        "eSEN-30M-OAM / UMA / EquiformerV3", None),
     ("nequip",               "NequIP / Allegro (OAM)",          None),
     # --- packages with conflicting torch pins — skipped by default ---
     ("tace>=0.2.0",

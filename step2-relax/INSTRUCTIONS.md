@@ -44,7 +44,7 @@ from lib.calculator import make_calculator
 calc = make_calculator(mlip_name, registry)  # auto-detects GPU, loads model
 ```
 
-See [references/mace_off_usage.md](../references/mace_off_usage.md) and
+See [references/mace_usage.md](../references/mace_usage.md) and
 [references/nequip_allegro_usage.md](../references/nequip_allegro_usage.md).
 
 ## Output: relaxed_endpoints.json

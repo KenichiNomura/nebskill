@@ -65,7 +65,7 @@ def main():
         "mlip_vs_dft_error_ev":     round(mace_error, 4) if mace_error is not None else None,
         "mlip_vs_dft_relative_pct": round(rel_error, 2) if rel_error is not None else None,
         "neb_converged":            latest["converged"],
-        "phase1_steps":             neb_result.get("phase1", {}).get("steps_taken"),
+        "phase1_steps":             (neb_result.get("phase1") or {}).get("steps_taken"),
         "phase2_steps":             latest["steps_taken"],
         "phase2_fmax_final":        latest["fmax_final"],
         "neb_energies":             energies,
