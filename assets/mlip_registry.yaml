@@ -9,24 +9,10 @@ mace-mp:
   device: auto
   dtype: float64
 
-mace-off:
-  package: mace
-  model_type: mace-off
-  model_size: medium
-  device: auto
-  dtype: float64
-
 mace-omat:
   package: mace
   model_type: mace-mp
   model_size: medium-omat-0
-  device: auto
-  dtype: float64
-
-mace-omol:
-  package: mace
-  model_type: mace-omol
-  model_size: extra_large   # only size currently released for MACE-OMOL-0
   device: auto
   dtype: float64
 
@@ -66,6 +52,13 @@ pet-oam-xl:
   model_name: pet-oam-xl
   device: auto
 
+# ── PET-OMat (OMat24-trained) ─────────────────────────────────────────────────
+pet-omat:
+  package: upet
+  model_name: pet-omat-l
+  version: latest
+  device: auto
+
 # ── eSEN-30M-OAM / UMA (rank 4 Matbench, via fairchem) ──────────────────────
 esen-30m-oam:
   package: fairchem
@@ -73,12 +66,56 @@ esen-30m-oam:
   task: omat
   device: auto
 
+# ── UMA-S-1.1 (local checkpoint) ─────────────────────────────────────────────
+uma-s-1p1:
+  package: fairchem
+  checkpoint: ~/models/uma-s-1p1.pt
+  task: omat
+  device: auto
+
+# ── MatRIS-10M-OAM (OMat24, fine-tuned on sAlex+MPtrj) ───────────────────────
+matris-oam:
+  package: matris
+  model_name: matris_10m_oam
+  task: efs
+  device: auto
+
+# ── DPA-2.4-7M (multitask OpenLAM foundation model, Omat24 head) ────────────
+# max_n_gpus: 1 — deepmd-kit's pytorch backend pins its CUDA device once at
+# import time via a process-wide global, so per-image multi-GPU pinning
+# silently collapses onto one GPU; force single-GPU NEB instead of
+# pretending to scale across n_gpus.
+dpa2:
+  package: deepmd
+  model_path: step0-models/models/DPA-2.4-7M.pt
+  head: Omat24
+  max_n_gpus: 1
+
+# ── DPA-3.1-3M (multitask OpenLAM foundation model, Omat24 head) ────────────
+dpa3:
+  package: deepmd
+  model_path: step0-models/models/DPA-3.1-3M.pt
+  head: Omat24
+  max_n_gpus: 1
+
 # ── TACE-OAM-L (rank 3 Matbench) ─────────────────────────────────────────────
 tace-oam-l:
   package: tace
   model_path: step0-models/models/TACE-OAM-L.pt   # downloaded by download.py
   device: auto
   dtype: float32
+
+# ── EquiformerV3 (OMat24 pretrain -> MPtrj+sAlex gradient fine-tune) ────────
+# max_n_gpus: 1 — OCPCalculator's trainer pins its device from a saved/default
+# local_rank at construction time and has no per-image device_override hook
+# (unlike the fairchem/nequip branches below), so force single-GPU NEB rather
+# than pretending to scale across n_gpus.
+equiformer-omat24:
+  package: equiformer_v3
+  repo_root: /global/cfs/cdirs/m5047/knomura/equiformer_v3
+  checkpoint: ~/models/checkpoint/omat24-mptrj-salex_gradient.pt
+  max_n_gpus: 1
+  device: auto
 
 # ── NequIP foundation models (compiled from Zenodo) ──────────────────────────
 nequip-oam-xl:

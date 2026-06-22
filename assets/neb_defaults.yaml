@@ -13,13 +13,30 @@ neb:
   n_images_min: 9
   method: improvedtangent     # improvedtangent | string | spline | eb (fixed; not LLM-adjustable)
   optimizer: FIRE2             # FIRE2 | MDMin — LLM-adjustable via switch_optimizer (BFGS/LBFGS excluded, see references/neb_method.md)
-  interpolation: linear        # idpp | linear  (linear safer for periodic cells)
-  spring_constant: 0.5        # eV/Å
+  interpolation: idpp          # idpp | linear  (idpp avoids atom-collision initial guesses;
+                               # linear can drive non-bonded atoms through each other on
+                               # straight-line paths, causing image_collapse — see
+                               # outputs/scaling-4node-54753443/mace-omol)
+  spring_constant: 0.1        # eV/Å — matches outputs.bkup/mace-mp,mace-omat,
+                               # the only runs on record where MACE converged
   remove_rotation_translation: true
-  phase1_fmax: 0.3            # eV/Å — standard NEB convergence target
+  phase1_fmax: 0.1             # eV/Å — standard NEB convergence target (final,
+                               # since skip_cineb is now the default)
   phase1_max_steps: 200
-  phase2_fmax: 0.05           # eV/Å — CI-NEB convergence target
+  skip_cineb: true            # true = single-phase NEB only (fmax<phase1_fmax),
+                               # no climbing-image refinement — matches the
+                               # historical mace-mp/mace-omat successful setup.
+                               # Set false to restore the two-phase scheme.
+  phase2_fmax: 0.3           # eV/Å — CI-NEB convergence target (unused while skip_cineb: true)
   phase2_max_steps: 300
+  n_gpus: 4                   # spreads one image's calculator per GPU
+                               # (cuda:0..n_gpus-1, round-robin) and runs the
+                               # NEB band in parallel via ASE's threaded
+                               # NEB(parallel=True) fallback. Default is 4 —
+                               # always use all of this system's GPUs/node
+                               # (the hard cap) for a single NEB job; set to
+                               # 1 to fall back to single-shared-calculator
+                               # serial behavior.
 
 retry:
   max_attempts: 5
@@ -48,5 +65,5 @@ execution:
   slurm_partition: gpu
   slurm_time: "02:00:00"
   slurm_nodes: 1
-  slurm_gpus_per_node: 1
+  slurm_gpus_per_node: 4
   slurm_account: m5047
