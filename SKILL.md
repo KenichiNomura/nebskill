@@ -75,10 +75,11 @@ Default values:
 |---|---|
 | MLIPs | `mace-omat`, `nequip-oam-l`, `allegro-oam-l` |
 | Number of NEB images | auto (`max(9, round(path_length/1.0))`) |
-| Spring constant k | `0.5 eV/Å` |
-| Final convergence fmax | `0.05 eV/Å` |
+| Spring constant k | `0.1 eV/Å` |
+| Final convergence fmax | `0.3 eV/Å` (single-phase NEB; CI-NEB phase skipped by default — set `skip_cineb: false` in `assets/neb_defaults.yaml` to restore the two-phase 0.05 eV/Å scheme) |
 | Max retry attempts (per MLIP) | `5` |
 | Execution mode | `interactive` (or `slurm` if available) |
+| GPUs per NEB run | `4` (always use all A100 GPUs on the node for one NEB job; set `n_gpus` lower to spread across fewer GPUs — see [step3-neb/INSTRUCTIONS.md](step3-neb/INSTRUCTIONS.md)) |
 
 If the user chooses **[2] Customize**, ask about each parameter one at a
 time, showing the default and accepted options.
@@ -92,7 +93,7 @@ Execute steps in order. Read each step's INSTRUCTIONS.md before executing.
    (see [step1-load/INSTRUCTIONS.md](step1-load/INSTRUCTIONS.md)). Writes
    `outputs/{run_id}/endpoints.json`.
 2. **Run the multi-MLIP campaign** → run
-   `python step0-multi/runner.py --endpoints-dir outputs/{run_id} [--mlips ...] [--mode interactive|slurm]`.
+   `python step0-multi/runner.py --endpoints-dir outputs/{run_id} [--mlips ...] [--mode interactive|slurm] [--n-gpus N]`.
    For each MLIP this internally runs relax → NEB → adaptive retry on
    failure → analyze → plot → write artifacts
    ([step2-relax](step2-relax/INSTRUCTIONS.md),
@@ -114,7 +115,8 @@ All outputs written to `outputs/{run_id}/`:
 - `{mlip}/energy_profile.png` — energy vs image index with barrier
   annotation
 - `{mlip}/report.json` — barrier height, TS geometry for that MLIP
-- `{mlip}/convergence.log` — per-step force history for both NEB phases
+- `{mlip}/convergence.log` — per-step force history for each NEB phase run
+  (single phase by default; both phases if `skip_cineb: false`)
 - `summary.json` — barrier heights and convergence across all MLIPs
 - `comparison.png` — overlaid forward/reverse barrier comparison across
   MLIPs
@@ -122,7 +124,7 @@ All outputs written to `outputs/{run_id}/`:
 ## References
 
 - [NEB method](references/neb_method.md)
-- [MACE usage](references/mace_off_usage.md)
+- [MACE usage](references/mace_usage.md)
 - [NequIP/Allegro usage](references/nequip_allegro_usage.md)
 - [ALCF API](references/alcf_api.md)
 

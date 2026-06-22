@@ -29,14 +29,20 @@ images distribute themselves along the MEP.
 
 ## Interpolation
 
-`assets/neb_defaults.yaml`'s default is `linear`, not IDPP — linear is
-safer for periodic cells (IDPP's distance-cost minimization can fight the
-minimum-image convention and produce a worse starting path under periodic
-boundary conditions). For isolated/molecular (non-periodic) systems, IDPP
-(`neb.interpolate('idpp')`) is generally preferable: it minimizes a cost
-function on interatomic distances, producing fewer atom collisions in the
-initial path. Set `interpolation: idpp` in the config if your system is
-non-periodic and the linear default isn't converging well.
+`assets/neb_defaults.yaml`'s default is `idpp`. IDPP minimizes a cost
+function on interatomic distances, which avoids driving non-bonded atoms
+through each other on the initial path — linear interpolation has no such
+safeguard and can place two unrelated atoms at sub-bonding distance partway
+along the band, causing an explosive repulsive force and `image_collapse`
+(observed in practice on a periodic 67-atom slab: linear interpolation drove
+a C and O atom to 0.885 Å at image 23/32, well inside bonding distance,
+diverging Phase 1 to fmax > 2000 eV/Å — see
+`outputs/scaling-4node-54753443/mace-omol`). `linear` is still available
+(`interpolation: linear` in the config) as a faster fallback when IDPP's
+extra distance-minimization pass itself becomes the bottleneck on very
+large systems, since IDPP's cost minimization can in principle fight the
+minimum-image convention under periodic boundary conditions — but try IDPP
+first.
 
 ## Two-phase CI-NEB protocol
 

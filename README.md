@@ -51,17 +51,22 @@ python step0-multi/runner.py --endpoints-dir outputs/reactant-product
 
 This loads the two structures, then for each MLIP in
 `assets/neb_defaults.yaml`'s `mlips:` list (default: `mace-omat`,
-`nequip-oam-l`, `allegro-oam-l`) relaxes the endpoints, runs two-phase NEB
-(standard NEB → CI-NEB), retries adaptively on convergence failure, and
-writes analysis artifacts — then aggregates barrier heights and convergence
-across all MLIPs.
+`nequip-oam-l`, `allegro-oam-l`) relaxes the endpoints, runs single-phase NEB
+to fmax < 0.1 eV/Å (`skip_cineb: true` is the default — set it to `false` in
+`assets/neb_defaults.yaml` to add the climbing-image CI-NEB phase), retries
+adaptively on convergence failure, and writes analysis artifacts — then
+aggregates barrier heights and convergence across all MLIPs.
 
-Override the MLIP list or run mode directly:
+Override the MLIP list, run mode, or GPU count directly:
 ```bash
 python step0-multi/runner.py --endpoints-dir outputs/reactant-product \
     --mlips mace-omat nequip-oam-l allegro-oam-l \
-    --mode interactive   # or: slurm
+    --mode interactive \
+    --n-gpus 4
 ```
+
+`--mode` accepts `interactive` or `slurm`. `--n-gpus N` spreads each MLIP's
+NEB images across N GPUs (default 4, hard-capped at this system's GPUs/node).
 
 `--initial`/`--final` accept any ASE-readable format (xyz, extxyz,
 POSCAR/CONTCAR, cif, ...). Periodicity (bulk/surface vs isolated/molecular)
@@ -72,8 +77,8 @@ is auto-detected from the input structures.
 ## Available MLIPs
 
 The full registry of supported MLIPs — including MACE, NequIP, Allegro, and
-several others (CHGNet, M3GNet, SevenNet, PET-MAD, eSEN/fairchem, TACE) — is
-in
+several others (CHGNet, M3GNet, SevenNet, PET-MAD, eSEN/UMA via fairchem,
+MatRIS, DPA-2/DPA-3 via DeepMD, TACE, EquiformerV3) — is in
 [assets/mlip_registry.yaml](assets/mlip_registry.yaml). Any registry key can
 be passed via `--mlips`; entries needing a local checkpoint note the
 expected file path.
@@ -92,8 +97,10 @@ relaxation:
 
 neb:
   n_images: auto       # max(9, round(path_length / 1.0))
-  spring_constant: 0.5 # eV/Å
-  phase2_fmax: 0.05    # eV/Å — CI-NEB convergence target
+  spring_constant: 0.1 # eV/Å
+  phase1_fmax: 0.1     # eV/Å — final convergence target (skip_cineb: true)
+  skip_cineb: true     # single-phase NEB; set false to add CI-NEB phase 2
+  n_gpus: 4            # GPUs per NEB run (round-robin one calculator/image)
 
 retry:
   max_attempts: 5      # adaptive retries per MLIP before giving up
@@ -131,6 +138,6 @@ Written to `outputs/{run_id}/` (run_id defaults to
 ## References
 
 - [NEB method](references/neb_method.md)
-- [MACE usage](references/mace_off_usage.md)
+- [MACE usage](references/mace_usage.md)
 - [NequIP/Allegro usage](references/nequip_allegro_usage.md)
 - [ALCF API](references/alcf_api.md)
