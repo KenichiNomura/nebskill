@@ -301,10 +301,16 @@ def main():
     traj_path = out_dir / "neb_trajectory.xyz"
 
     # --- Phase 1: standard NEB ---
-    print(f"  Phase 1: standard NEB → fmax < {neb_cfg['phase1_fmax']} eV/Å")
+    # When CI-NEB (phase 2) is skipped, phase 1 is the only convergence
+    # check, so it must target phase2_fmax/phase2_max_steps (the intended
+    # single-phase criterion) rather than the tighter phase1_fmax meant to
+    # gate entry into phase 2 of the two-phase scheme.
+    phase1_fmax = neb_cfg["phase2_fmax"] if skip_cineb else neb_cfg["phase1_fmax"]
+    phase1_max_steps = neb_cfg["phase2_max_steps"] if skip_cineb else neb_cfg["phase1_max_steps"]
+    print(f"  Phase 1: standard NEB → fmax < {phase1_fmax} eV/Å")
     result1 = run_phase(neb, images,
-                        fmax=float(neb_cfg["phase1_fmax"]),
-                        max_steps=int(neb_cfg["phase1_max_steps"]),
+                        fmax=float(phase1_fmax),
+                        max_steps=int(phase1_max_steps),
                         phase=1, traj_path=traj_path, append_traj=False,
                         optimizer_name=optimizer_name)
 

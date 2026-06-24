@@ -230,9 +230,26 @@ def apply_intervention(fn_name: str, fn_args: dict,
 # Subprocess helpers
 # --------------------------------------------------------------------------- #
 
+# Packages whose current PyPI releases need an e3nn version incompatible
+# with mace-torch's pinned e3nn==0.4.4 — their relax/NEB subprocesses run
+# under a separate venv. See step0-multi/runner.py (same logic) and
+# references/nequip_allegro_usage.md.
+_SEPARATE_VENV_PACKAGES = {"nequip"}
+_SEPARATE_VENV_PYTHON = ROOT / ".venv-nequip" / "bin" / "python"
+
+
+def _python_for(mlip: str, registry: str) -> str:
+    with open(registry) as f:
+        reg = yaml.safe_load(f)
+    pkg = reg.get(mlip, {}).get("package")
+    if pkg in _SEPARATE_VENV_PACKAGES:
+        return str(_SEPARATE_VENV_PYTHON)
+    return sys.executable
+
+
 def run_relax(out_dir: Path, config: str, mlip: str, registry: str,
               relax_args: dict | None = None) -> int:
-    cmd = [sys.executable, "step2-relax/relax_endpoints.py",
+    cmd = [_python_for(mlip, registry), "step2-relax/relax_endpoints.py",
            "--output-dir", str(out_dir),
            "--config", config,
            "--mlip", mlip,
@@ -245,7 +262,7 @@ def run_relax(out_dir: Path, config: str, mlip: str, registry: str,
 
 def run_neb(out_dir: Path, config: str, mlip: str, registry: str,
             neb_args: dict) -> int:
-    cmd = [sys.executable, "step3-neb/neb_runner.py",
+    cmd = [_python_for(mlip, registry), "step3-neb/neb_runner.py",
            "--output-dir", str(out_dir),
            "--config", config,
            "--mlip", mlip,

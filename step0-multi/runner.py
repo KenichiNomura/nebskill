@@ -20,6 +20,26 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Packages whose current PyPI releases need an e3nn version incompatible
+# with mace-torch's pinned e3nn==0.4.4 (see references/nequip_allegro_usage.md).
+# Their relax/NEB/retry subprocesses run under a separate venv instead of
+# the main one that launched this script.
+_SEPARATE_VENV_PACKAGES = {"nequip"}
+_SEPARATE_VENV_PYTHON = ROOT / ".venv-nequip" / "bin" / "python"
+
+
+def _python_for(mlip: str, registry: dict) -> str:
+    pkg = registry.get(mlip, {}).get("package")
+    if pkg in _SEPARATE_VENV_PACKAGES:
+        if not _SEPARATE_VENV_PYTHON.exists():
+            raise RuntimeError(
+                f"MLIP '{mlip}' (package={pkg}) needs {_SEPARATE_VENV_PYTHON}, "
+                "which doesn't exist. Create it and install a modern nequip "
+                "(>=0.7) compatible with the compiled .nequip.pt2 checkpoints."
+            )
+        return str(_SEPARATE_VENV_PYTHON)
+    return sys.executable
+
 
 def _ask_mode() -> str:
     print("\nHow would you like to run the NEB campaign?")
@@ -29,8 +49,8 @@ def _ask_mode() -> str:
     return "slurm" if choice == "2" else "interactive"
 
 
-def _run(script: str, extra: list, allow_exit4: bool = False) -> int:
-    cmd = [sys.executable, str(ROOT / script)] + extra
+def _run(script: str, extra: list, allow_exit4: bool = False, python: str = None) -> int:
+    cmd = [python or sys.executable, str(ROOT / script)] + extra
     print(f"    $ {' '.join(str(c) for c in cmd)}")
     rc = subprocess.run(cmd, cwd=ROOT).returncode
     if rc != 0 and not (allow_exit4 and rc == 4):
@@ -132,15 +152,18 @@ def main():
             continue
 
         # ── interactive sequential ────────────────────────────────────────────
+        mlip_python  = _python_for(mlip, registry)
         mlip_args    = ["--mlip", mlip, "--output-dir", str(out_dir),
                         "--config", args.config, "--registry", args.registry]
         neb_args     = mlip_args + (["--n-gpus", str(n_gpus)] if n_gpus != 1 else [])
         analyze_args = ["--output-dir", str(out_dir), "--config", args.config]
         out_dir_args = ["--output-dir", str(out_dir)]
         try:
-            _run("step2-relax/relax_endpoints.py", mlip_args)
-            rc = _run("step3-neb/neb_runner.py",   neb_args, allow_exit4=True)
+            _run("step2-relax/relax_endpoints.py", mlip_args, python=mlip_python)
+            rc = _run("step3-neb/neb_runner.py",   neb_args, allow_exit4=True, python=mlip_python)
             if rc == 4:
+                # retry.py needs the main venv (openai/globus-sdk) — it
+                # internally re-dispatches relax/neb to the right venv itself.
                 _run("step4-monitor/retry.py",     neb_args)
             _run("step5-analyze/analyze.py", analyze_args)
             _run("step5-analyze/plot.py",    out_dir_args)
